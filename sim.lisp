@@ -102,7 +102,7 @@
       data
     (cons (car data) (f (cdr data)))))
 
-(defthm foothm
+(defthm f-identity
   (implies (and (datap l))
 	   (equal (f l) l)))
 
@@ -116,7 +116,7 @@
   (implies (and (datap d))
 	   (equal (simulator* d) (f d))))
 
-(defthm simulator-correct
+(defthm simulator-is-correct
   (implies (and (datap data))
 	   (equal (simulator* data) data)))
 
