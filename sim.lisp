@@ -94,19 +94,19 @@
 	 (new-rs (receiver rs packet)))
     (list new-ss new-rs)))
 
-(definec simulator (ss :sender-state rs :receiver-state) :data
-  (cond
-   ((lendp ss) rs)
-   (T (let* ((ss-out (sender ss))
-	     (new-ss (car ss-out))
-	     (packet (cdr ss-out))
-	     (new-rs (receiver rs packet)))
-	(simulator new-ss new-rs)))))
+(definec simulator (sim :sim-state) :data
+  (define (xargs :measure (len (first sim))
+		 :termination-method :measure))
+  (let ((ss (first sim))
+	(rs (second sim)))
+    (cond
+     ((lendp ss) rs)
+     (T (simulator (simulator-step sim))))))
 
 ;; ---- Proofs ----
 
 (definec simulator* (data :data) :data
-  (simulator data '()))
+  (simulator (list data '())))
 
 (definec f (data :data) :data
   (if (lendp data)
@@ -118,10 +118,9 @@
 	   (equal (f l) l)))
 
 (defthm f-sim-relation
-  (implies (and (datap in)
-		(datap out))
-	   (equal (simulator in out) (app out (f in))))
-  :hints (("Goal" :induct (simulator in out))))
+  (implies (and (sim-statep sim))
+	   (equal (simulator sim) (app (second sim) (f (first sim)))))
+  :hints (("Goal" :induct (simulator sim))))
 
 (defthm sim*-equiv-f
   (implies (and (datap d))
