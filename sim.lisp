@@ -106,6 +106,7 @@
 (definec simulator (sim :sim-state) :data
   (define (xargs :measure (sim-state-steps sim)
 		 :termination-method :measure))
+  :ic (>= (len (sim-state-ss sim)) (sim-state-steps sim))
   (cond
    ((zp (sim-state-steps sim)) (sim-state-rs sim))
    (T (simulator (simulator-step sim)))))
@@ -113,25 +114,24 @@
 ;; ---- Proofs ----
 
 (definec simulator* (data :data) :data
-  (simulator (list data '())))
+  (simulator (list data '() (len data))))
 
-(definec f (data :data) :data
-  (if (lendp data)
-      data
-    (cons (car data) (f (cdr data)))))
+(definec take2 (data :data n :nat) :data
+  :ic (>= (len data) n)
+  (if (zp n)
+      '()
+    (cons (car data) (take2 (cdr data) (1- n)))))
 
-(defthm f-identity
-  (implies (and (datap l))
-	   (equal (f l) l)))
+(defthm take2-sim-relation
+  (implies (and (sim-statep sim)
+		(>= (len (sim-state-ss sim)) (sim-state-steps sim)))
+	   (equal (simulator sim)
+		  (app (sim-state-rs sim)
+		       (take2 (sim-state-ss sim) (sim-state-steps sim))))))
 
-(defthm f-sim-relation
-  (implies (and (sim-statep sim))
-	   (equal (simulator sim) (app (sim-state-rs sim) (f (sim-state-ss sim)))))
-  :hints (("Goal" :induct (simulator sim))))
-
-(defthm sim*-equiv-f
+(defthm sim*-equiv-take2
   (implies (and (datap d))
-	   (equal (simulator* d) (f d))))
+	   (equal (simulator* d) (take2 d (len d)))))
 
 (defthm simulator-is-correct
   (implies (and (datap data))
