@@ -72,7 +72,14 @@
 
 (defdata receiver-state data)
 
+;; Sim-state -- (sender-state receiver-state)
 (defdata sim-state (list sender-state receiver-state))
+
+(definec sim-state-ss (sim :sim-state) :sender-state
+  (first sim))
+
+(definec sim-state-rs (sim :sim-state) :receiver-state
+  (second sim))
 
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out (cons sender-state atom))
@@ -86,22 +93,18 @@
   (app receiver-state (list packet)))
 
 (definec simulator-step (sim :sim-state) :sim-state
-  (let* ((ss (first sim))
-	 (rs (second sim))
-	 (ss-out (sender ss))
+  (let* ((ss-out (sender (sim-state-ss sim)))
 	 (new-ss (car ss-out))
 	 (packet (cdr ss-out))
-	 (new-rs (receiver rs packet)))
+	 (new-rs (receiver (sim-state-rs sim) packet)))
     (list new-ss new-rs)))
 
 (definec simulator (sim :sim-state) :data
-  (define (xargs :measure (len (first sim))
+  (define (xargs :measure (len (sim-state-ss sim))
 		 :termination-method :measure))
-  (let ((ss (first sim))
-	(rs (second sim)))
-    (cond
-     ((lendp ss) rs)
-     (T (simulator (simulator-step sim))))))
+  (cond
+   ((lendp (sim-state-ss sim)) (sim-state-rs sim))
+   (T (simulator (simulator-step sim)))))
 
 ;; ---- Proofs ----
 
@@ -119,7 +122,7 @@
 
 (defthm f-sim-relation
   (implies (and (sim-statep sim))
-	   (equal (simulator sim) (app (second sim) (f (first sim)))))
+	   (equal (simulator sim) (app (sim-state-rs sim) (f (sim-state-ss sim)))))
   :hints (("Goal" :induct (simulator sim))))
 
 (defthm sim*-equiv-f
