@@ -72,14 +72,17 @@
 
 (defdata receiver-state data)
 
-;; Sim-state -- (sender-state receiver-state)
-(defdata sim-state (list sender-state receiver-state))
+;; Sim-state -- (sender-state receiver-state steps)
+(defdata sim-state (list sender-state receiver-state nat))
 
 (definec sim-state-ss (sim :sim-state) :sender-state
   (first sim))
 
 (definec sim-state-rs (sim :sim-state) :receiver-state
   (second sim))
+
+(definec sim-state-steps (sim :sim-state) :nat
+  (third sim))
 
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out (cons sender-state atom))
@@ -93,17 +96,18 @@
   (app receiver-state (list packet)))
 
 (definec simulator-step (sim :sim-state) :sim-state
+  :ic (posp (sim-state-steps sim))
   (let* ((ss-out (sender (sim-state-ss sim)))
 	 (new-ss (car ss-out))
 	 (packet (cdr ss-out))
 	 (new-rs (receiver (sim-state-rs sim) packet)))
-    (list new-ss new-rs)))
+    (list new-ss new-rs (1- (sim-state-steps sim)))))
 
 (definec simulator (sim :sim-state) :data
-  (define (xargs :measure (len (sim-state-ss sim))
+  (define (xargs :measure (sim-state-steps sim)
 		 :termination-method :measure))
   (cond
-   ((lendp (sim-state-ss sim)) (sim-state-rs sim))
+   ((zp (sim-state-steps sim)) (sim-state-rs sim))
    (T (simulator (simulator-step sim)))))
 
 ;; ---- Proofs ----
