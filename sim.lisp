@@ -64,49 +64,38 @@
 ; ******************* END INITIALIZATION FOR ACL2s MODE ******************* ;
 ;$ACL2s-SMode$;ACL2s
 
+;; ---- Definitions ----
+
 (defdata data (listof atom))
 
-(defdata sender-state (record (to-send . data)))
+(defdata sender-state data)
 
+(defdata receiver-state data)
 
-;; (defthm ss-make
-;;   (implies (datap data)
-;; 	   (sender-statep (sender-state data))))
-
-(defdata receiver-state (record (received . data)))
-
-;; (defdata sender-out (record (new-state . sender-state)
-;; 			    (packet . atom)))
-
+;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out (cons sender-state atom))
 
-(set-ignore-ok t)
+;; ---- Functions ----
 
 (definec sender (sender-state :sender-state) :sender-out
-  ;; (sender-out sender-state 1 ;; (car (sender-state-to-send sender-state))
-  ;; 	      )
-  (cons
-   (set-sender-state-to-send (cdr (sender-state-to-send sender-state)) sender-state)
-   (car (sender-state-to-send sender-state))
-   ))
-
+  (cons (cdr sender-state) (car sender-state)))
 
 (definec receiver (receiver-state :receiver-state packet :atom) :receiver-state
-  (set-receiver-state-received (app (receiver-state-received receiver-state) (list packet)) receiver-state))
+  (app receiver-state (list packet)))
 
-
-(definec simulator (ss :sender-state rs :receiver-state cd :nat) :data
+(definec simulator (ss :sender-state rs :receiver-state) :data
   (cond
-   ((zp cd) (receiver-state-received rs))
+   ((lendp ss) rs)
    (T (let* ((ss-out (sender ss))
 	     (new-ss (car ss-out))
 	     (packet (cdr ss-out))
 	     (new-rs (receiver rs packet)))
-	(simulator new-ss new-rs (1- cd))))))
+	(simulator new-ss new-rs)))))
+
+;; ---- Proofs ----
 
 (definec simulator* (data :data) :data
-  :body-contracts-strictp nil
-  (simulator (sender-state data) (receiver-state '()) (len data)))
+  (simulator data '()))
 
 (definec f (data :data) :data
   (if (lendp data)
@@ -117,25 +106,17 @@
   (implies (and (datap l))
 	   (equal (f l) l)))
 
-(defthm receiver-cons
-  (implies (and (datap l)
-		(atom p))
-	   (equal (receiver-state-received (receiver (receiver-state l) p)) (app l (list p)))))
-
 (defthm f-sim-relation
   (implies (and (datap in)
 		(datap out))
-	   (equal (simulator (sender-state in) (receiver-state out) (len in)) (app out (f in))))
-  :hints (("Goal" :induct (app out (f in)))))
+	   (equal (simulator in out) (app out (f in))))
+  :hints (("Goal" :induct (simulator in out))))
 
-(test?
-  (implies (and (datap in)
-		(datap out))
-	   (equal (simulator (sender-state in) (receiver-state out) (len in)) (app out (f in)))))
+(defthm sim*-equiv-f
+  (implies (and (datap d))
+	   (equal (simulator* d) (f d))))
 
-(thm (implies (and (datap data))
-	      (equal (f data) (simulator* data))))
-
-(thm (implies (and (datap data))
-	      (equal data (simulator* data))))
+(defthm simulator-correct
+  (implies (and (datap data))
+	   (equal (simulator* data) data)))
 
