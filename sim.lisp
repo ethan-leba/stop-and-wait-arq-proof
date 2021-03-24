@@ -72,6 +72,8 @@
 
 (defdata receiver-state data)
 
+(defdata sim-state (list sender-state receiver-state))
+
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out (cons sender-state atom))
 
@@ -82,6 +84,15 @@
 
 (definec receiver (receiver-state :receiver-state packet :atom) :receiver-state
   (app receiver-state (list packet)))
+
+(definec simulator-step (sim :sim-state) :sim-state
+  (let* ((ss (first sim))
+	 (rs (second sim))
+	 (ss-out (sender ss))
+	 (new-ss (car ss-out))
+	 (packet (cdr ss-out))
+	 (new-rs (receiver rs packet)))
+    (list new-ss new-rs)))
 
 (definec simulator (ss :sender-state rs :receiver-state) :data
   (cond
