@@ -1,6 +1,6 @@
 ; ****************** BEGIN INITIALIZATION FOR ACL2s MODE ****************** ;
 ; (Nothing to see here!  Your actual file is after this initialization code);
- (make-event
+(make-event
  (er-progn
   (set-deferred-ttag-notes t state)
   (value '(value-triple :invisible))))
@@ -113,14 +113,29 @@
 
 ;; ---- Proofs ----
 
-(definec simulator* (data :data) :data
-  (simulator (list data '() (len data))))
+(definec simulator* (data :data steps :nat) :data
+  :ic (>= (len data) steps)
+  (simulator (list data '() steps)))
 
-(definec take2 (data :data n :nat) :data
+(definec take2 (data :tl n :nat) :tl
   :ic (>= (len data) n)
   (if (zp n)
       '()
     (cons (car data) (take2 (cdr data) (1- n)))))
+
+;; Checks if x is a prefix of y
+(definec prefixp (x :tl y :tl) :bool
+  (cond
+   ((lendp x) T)
+   ((lendp y) (lendp x))
+   (T (and (equal (car x) (car y))
+	   (prefixp (cdr x) (cdr y))))))
+
+(defthm take2-always-a-prefix
+  (implies (and (tlp x)
+		(natp n)
+		(>= (len x) n))
+	   (prefixp (take2 x n) x)))
 
 (defthm take2-sim-relation
   (implies (and (sim-statep sim)
@@ -130,10 +145,14 @@
 		       (take2 (sim-state-ss sim) (sim-state-steps sim))))))
 
 (defthm sim*-equiv-take2
-  (implies (and (datap d))
-	   (equal (simulator* d) (take2 d (len d)))))
+  (implies (and (datap d)
+		(natp n)
+		(>= (len d) n))
+	   (equal (simulator* d n) (take2 d n))))
 
-(defthm simulator-is-correct
-  (implies (and (datap data))
-	   (equal (simulator* data) data)))
+(defthm data-never-out-of-order
+  (implies (and (datap d)
+		(natp n)
+		(>= (len d) n))
+	   (prefixp (simulator* d n) d)))
 
