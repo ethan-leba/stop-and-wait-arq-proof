@@ -72,6 +72,8 @@
 
 (defdata receiver-state data)
 
+(defdata ack nat)
+
 ;; Sim-state -- (sender-state receiver-state steps)
 (defdata sim-state (list sender-state receiver-state nat))
 
@@ -87,21 +89,35 @@
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out (cons sender-state atom))
 
+;; LHS contains the sender's updated state, RHS is the packet to be sent
+(defdata receiver-out (cons receiver-state ack))
+
 ;; ---- Functions ----
 
 (definec sender (sender-state :sender-state) :sender-out
   (cons (cdr sender-state) (car sender-state)))
 
-(definec receiver (receiver-state :receiver-state packet :atom) :receiver-state
-  (app receiver-state (list packet)))
+(set-ignore-ok t)
+;; No-op, for now
+(definec sender-ack (sender-state :sender-state ack :ack) :sender-state
+  sender-state)
+
+(definec receiver (receiver-state :receiver-state packet :atom) :receiver-out
+  (cons (app receiver-state (list packet)) 0))
 
 (definec simulator-step (sim :sim-state) :sim-state
   :ic (posp (sim-state-steps sim))
-  (let* ((ss-out (sender (sim-state-ss sim)))
+  (let* (;; Sender sends out a packet
+	 (ss-out (sender (sim-state-ss sim)))
 	 (new-ss (car ss-out))
 	 (packet (cdr ss-out))
-	 (new-rs (receiver (sim-state-rs sim) packet)))
-    (list new-ss new-rs (1- (sim-state-steps sim)))))
+	 ;; Receiver receives a packet and sends out an ack
+	 (rs-out (receiver (sim-state-rs sim) packet))
+	 (new-rs (car rs-out))
+	 (ack (cdr rs-out))
+	 ;; Sender responds to ack
+	 (ack-ss (sender-ack new-ss ack)))
+    (list ack-ss new-rs (1- (sim-state-steps sim)))))
 
 (definec simulator (sim :sim-state) :data
   (define (xargs :measure (sim-state-steps sim)
