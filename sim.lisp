@@ -75,16 +75,7 @@
 (defdata ack nat)
 
 ;; Sim-state -- (sender-state receiver-state steps)
-(defdata sim-state (list sender-state receiver-state nat))
-
-(definec sim-state-ss (sim :sim-state) :sender-state
-  (first sim))
-
-(definec sim-state-rs (sim :sim-state) :receiver-state
-  (second sim))
-
-(definec sim-state-steps (sim :sim-state) :nat
-  (third sim))
+(defdata sim-state (list 'sim-state sender-state receiver-state nat))
 
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out (cons sender-state atom))
@@ -105,33 +96,54 @@
 (definec receiver (receiver-state :receiver-state packet :atom) :receiver-out
   (cons (app receiver-state (list packet)) 0))
 
+(definec steps-left (sim :sim-state) :bool
+  (posp (case-match sim (('sim-state & & steps) steps))))
+
 (definec simulator-step (sim :sim-state) :sim-state
-  :ic (posp (sim-state-steps sim))
-  (let* (;; Sender sends out a packet
-	 (ss-out (sender (sim-state-ss sim)))
-	 (new-ss (car ss-out))
-	 (packet (cdr ss-out))
-	 ;; Receiver receives a packet and sends out an ack
-	 (rs-out (receiver (sim-state-rs sim) packet))
-	 (new-rs (car rs-out))
-	 (ack (cdr rs-out))
-	 ;; Sender responds to ack
-	 (ack-ss (sender-ack new-ss ack)))
-    (list ack-ss new-rs (1- (sim-state-steps sim)))))
+  :ic (steps-left sim)
+  (case-match sim
+    (('sim-state ss rs steps)
+     (let* (;; Sender sends out a packet
+	    (ss-out (sender ss))
+	    (new-ss (car ss-out))
+	    (packet (cdr ss-out))
+	    ;; Receiver receives a packet and sends out an ack
+	    (rs-out (receiver rs packet))
+	    (new-rs (car rs-out))
+	    (ack (cdr rs-out))
+	    ;; Sender responds to ack
+	    (ack-ss (sender-ack new-ss ack)))
+       (list 'sim-state ack-ss new-rs (1- steps))))))
+
+(let ((sim (list 'sim-state '(1 2 3) '() 123)))
+  (case-match sim
+    (('sim-state ss rs steps)
+     (list ss rs steps))))
+
+(definec simulator-measure (sim :sim-state) :nat
+  (case-match sim (('sim-state & & steps)
+		   steps)))
+
+(definec more-items-than-steps (sim :sim-state) :all
+  (case-match sim
+    (('sim-state ss & steps)
+     (>= (len ss) steps))))
 
 (definec simulator (sim :sim-state) :data
-  (define (xargs :measure (sim-state-steps sim)
+  (define (xargs :measure (simulator-measure sim)
 		 :termination-method :measure))
-  :ic (>= (len (sim-state-ss sim)) (sim-state-steps sim))
-  (cond
-   ((zp (sim-state-steps sim)) (sim-state-rs sim))
-   (T (simulator (simulator-step sim)))))
+  :ic (more-items-than-steps sim)
+  (case-match sim
+    (('sim-state & rs steps)
+     (cond
+      ((zp steps) rs)
+      (T (simulator (simulator-step sim)))))))
 
 ;; ---- Proofs ----
 
-(definec simulator* (data :data steps :nat) :data
+(definec simulator* (data :data steps :nat) :all
   :ic (>= (len data) steps)
-  (simulator (list data '() steps)))
+  (simulator (list 'sim-state data '() steps)))
 
 (definec take2 (data :tl n :nat) :tl
   :ic (>= (len data) n)
@@ -155,10 +167,11 @@
 
 (defthm take2-sim-relation
   (implies (and (sim-statep sim)
-		(>= (len (sim-state-ss sim)) (sim-state-steps sim)))
+		(more-items-than-steps sim))
 	   (equal (simulator sim)
-		  (app (sim-state-rs sim)
-		       (take2 (sim-state-ss sim) (sim-state-steps sim))))))
+		  (case-match sim
+		    (('sim-state ss rs steps)
+		     (app rs (take2 ss steps)))))))
 
 (defthm sim*-equiv-take2
   (implies (and (datap d)
