@@ -104,47 +104,38 @@
   (cons (app receiver-state (list packet)) 0))
 
 (definec steps-left (sim :sim-state) :bool
-  (posp (case-match sim (('sim-state & & steps) steps))))
+  (let-match* ((('sim-state & & steps) sim))
+	      (posp steps)))
 
 (definec simulator-step (sim :sim-state) :sim-state
   :ic (steps-left sim)
-  (case-match sim
-    (('sim-state ss rs steps)
-     (let* (;; Sender sends out a packet
-	    (ss-out (sender ss))
-	    (new-ss (car ss-out))
-	    (packet (cdr ss-out))
-	    ;; Receiver receives a packet and sends out an ack
-	    (rs-out (receiver rs packet))
-	    (new-rs (car rs-out))
-	    (ack (cdr rs-out))
-	    ;; Sender responds to ack
-	    (ack-ss (sender-ack new-ss ack)))
-       (list 'sim-state ack-ss new-rs (1- steps))))))
+  (let-match* ((('sim-state ss rs steps) sim))
+    (let* (;; Sender sends out a packet
+	   (ss-out (sender ss))
+	   (new-ss (car ss-out))
+	   (packet (cdr ss-out))
+	   ;; Receiver receives a packet and sends out an ack
+	   (rs-out (receiver rs packet))
+	   (new-rs (car rs-out))
+	   (ack (cdr rs-out))
+	   ;; Sender responds to ack
+	   (ack-ss (sender-ack new-ss ack)))
+      (list 'sim-state ack-ss new-rs (1- steps)))))
 
 (let ((sim (list 'sim-state '(1 2 3) '() 123)))
-  (case-match sim
-    (('sim-state ss rs steps)
-     (list ss rs steps))))
-
-(definec simulator-measure (sim :sim-state) :nat
-  (case-match sim (('sim-state & & steps)
-		   steps)))
+  (let-match* (('sim-state ss rs steps) sim)
+	      (list ss rs steps)))
 
 (definec more-items-than-steps (sim :sim-state) :all
-  (case-match sim
-    (('sim-state ss & steps)
-     (>= (len ss) steps))))
+  (let-match* ((('sim-state ss & steps) sim))
+	      (>= (len ss) steps)))
 
 (definec simulator (sim :sim-state) :data
-  (define (xargs :measure (simulator-measure sim)
-		 :termination-method :measure))
   :ic (more-items-than-steps sim)
-  (case-match sim
-    (('sim-state & rs steps)
-     (cond
-      ((zp steps) rs)
-      (T (simulator (simulator-step sim)))))))
+  (let-match* (('sim-state & rs steps) sim)
+	      (cond
+	       ((zp steps) rs)
+	       (T (simulator (simulator-step sim))))))
 
 ;; ---- Proofs ----
 
@@ -176,9 +167,8 @@
   (implies (and (sim-statep sim)
 		(more-items-than-steps sim))
 	   (equal (simulator sim)
-		  (case-match sim
-		    (('sim-state ss rs steps)
-		     (app rs (take2 ss steps)))))))
+		  (let-match* (('sim-state ss rs steps) sim)
+			      (app rs (take2 ss steps))))))
 
 (defthm sim*-equiv-take2
   (implies (and (datap d)
