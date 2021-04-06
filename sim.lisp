@@ -64,6 +64,13 @@
 ; ******************* END INITIALIZATION FOR ACL2s MODE ******************* ;
 ;$ACL2s-SMode$;ACL2s
 
+(defmacro let-match* (binds body)
+  (case-match binds
+    ('() body)
+    (((pat val) . rst)
+     `(case-match ,val
+	(,pat (let-match* ,rst ,body))))))
+
 ;; ---- Definitions ----
 
 (defdata data (listof atom))
