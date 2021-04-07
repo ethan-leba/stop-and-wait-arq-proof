@@ -76,17 +76,19 @@
 
 (defdata data (listof atom))
 
-(defdata sender-state `(sendstate ,data))
+(defdata sender-state `(sendstate ,data ,nat))
 
-(defdata receiver-state `(recvstate ,data))
+(defdata receiver-state `(recvstate ,data ,nat))
 
 (defdata ack nat)
+
+(defdata packet `(packet ,atom ,nat))
 
 ;; Sim-state -- (sender-state receiver-state steps)
 (defdata sim-state `(sim-state ,sender-state ,receiver-state ,nat))
 
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
-(defdata sender-out `(sender-out ,sender-state ,atom))
+(defdata sender-out `(sender-out ,sender-state ,packet))
 
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata receiver-out `(receiver-out ,receiver-state ,ack))
@@ -95,17 +97,20 @@
 
 (definec sender (sender-state :sender-state) :sender-out
   "This function represents the behavior of the sender in the stop-and-wait ARQ."
-  (let-match* ((('sendstate to-send) sender-state))
-    `(sender-out (sendstate ,(cdr to-send)) ,(car to-send))))
+  (let-match* ((('sendstate to-send seq-num) sender-state))
+    `(sender-out (sendstate ,(cdr to-send) ,seq-num)
+		 (packet ,(car to-send) ,seq-num))))
 
 (set-ignore-ok t)
 ;; No-op, for now
 (definec sender-ack (sender-state :sender-state ack :ack) :sender-state
   sender-state)
 
-(definec receiver (receiver-state :receiver-state packet :atom) :receiver-out
-  (let-match* ((('recvstate data) receiver-state))
-    `(receiver-out (recvstate ,(app data (list packet))) 0)))
+(definec receiver (receiver-state :receiver-state packet :packet) :receiver-out
+  (let-match* ((('recvstate stored old-seq-num) receiver-state))
+    (case-match packet
+      (('packet data seq-num)
+       `(receiver-out (recvstate ,(app stored (list data)) ,seq-num) ,seq-num)))))
 
 (definec steps-left (sim :sim-state) :bool
   (let-match* ((('sim-state & & steps) sim))
@@ -119,30 +124,33 @@
 	       (new-ss (sender-ack waiting-on-ack-ss ack)))
     `(sim-state ,new-ss ,new-rs ,(1- steps))))
 
-(check= (simulator-step '(sim-state (sendstate (1 2)) (recvstate nil) 3))
-	'(sim-state (sendstate (2)) (recvstate (1)) 2))
-(check= (simulator-step '(sim-state (sendstate (1)) (recvstate (4 5 6)) 1))
-	'(sim-state (sendstate ()) (recvstate (4 5 6 1)) 0))
+(check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0) 3))
+	'(sim-state (sendstate (2) 0) (recvstate (1) 0) 2))
+(check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0) 1))
+	'(sim-state (sendstate () 0) (recvstate (4 5 6 1) 0) 0))
 
 (definec more-items-than-steps (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate ss) & steps) sim))
+  (let-match* ((('sim-state ('sendstate ss &) & steps) sim))
     (>= (len ss) steps)))
 
 (definec simulator (sim :sim-state) :data
   :ic (more-items-than-steps sim)
-  (let-match* ((('sim-state & ('recvstate rs) steps) sim))
+  (let-match* ((('sim-state & ('recvstate rs &) steps) sim))
 	      (cond
 	       ((zp steps) rs)
 	       (T (simulator (simulator-step sim))))))
 
-(check= (simulator '(sim-state (sendstate (1)) (recvstate (4 5 6)) 0))
-	'(4 5 6))
-
-;; ---- Proofs ----
+(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0) 3))
+	'(4 5 6 1 2 3))
 
 (definec simulator* (data :data steps :nat) :data
   :ic (>= (len data) steps)
-  (simulator `(sim-state (sendstate ,data) (recvstate nil) ,steps)))
+  (simulator `(sim-state (sendstate ,data 0) (recvstate nil 0) ,steps)))
+
+(check= (simulator* '(4 5 6) 3)
+	'(4 5 6))
+
+;; ---- Proofs ----
 
 (definec take2 (data :tl n :nat) :tl
   :ic (>= (len data) n)
@@ -168,7 +176,7 @@
   (implies (and (sim-statep sim)
 		(more-items-than-steps sim))
 	   (equal (simulator sim)
-		  (let-match* ((('sim-state ('sendstate ss) ('recvstate rs) steps) sim))
+		  (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
 		    (app rs (take2 ss steps))))))
 
 (defthm sim*-equiv-take2
