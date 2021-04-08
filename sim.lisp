@@ -93,31 +93,39 @@
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata receiver-out `(receiver-out ,receiver-state ,ack))
 
+(defdata result (oneof data 'error))
+
 ;; ---- Functions ----
+
+(definec seq-num-lt-data (sender-state :sender-state) :bool
+  "Ensures that the sequence number is smaller than the length of the data."
+  (let-match* ((('sendstate to-send seq-num) sender-state))
+    (> (len to-send) seq-num)))
 
 (definec sender (sender-state :sender-state) :sender-out
   "This function represents the behavior of the sender in the stop-and-wait ARQ."
+  :ic (seq-num-lt-data sender-state)
   (let-match* ((('sendstate to-send seq-num) sender-state))
-    `(sender-out (sendstate ,(cdr to-send) ,seq-num)
-		 (packet ,(car to-send) ,seq-num))))
+    `(sender-out (sendstate ,to-send ,seq-num)
+		 (packet ,(nth seq-num to-send) ,seq-num))))
 
-(set-ignore-ok t)
-;; No-op, for now
 (definec sender-ack (sender-state :sender-state ack :ack) :sender-state
-  sender-state)
+  (let-match* ((('sendstate to-send seq-num) sender-state))
+    `(sendstate ,to-send ,(max seq-num ack))))
 
 (definec receiver (receiver-state :receiver-state packet :packet) :receiver-out
-  (let-match* ((('recvstate stored old-seq-num) receiver-state))
+  (let-match* ((('recvstate stored &) receiver-state))
     (case-match packet
       (('packet data seq-num)
-       `(receiver-out (recvstate ,(app stored (list data)) ,seq-num) ,seq-num)))))
+       `(receiver-out (recvstate ,(app stored (list data)) ,seq-num) ,(1+ seq-num))))))
 
-(definec steps-left (sim :sim-state) :bool
-  (let-match* ((('sim-state & & steps) sim))
-	      (posp steps)))
+(definec simulator-state-check (sim :sim-state) :bool
+  (let-match* ((('sim-state sender-state & steps) sim))
+    (and (seq-num-lt-data sender-state)
+	 (posp steps))))
 
 (definec simulator-step (sim :sim-state) :sim-state
-  :ic (steps-left sim)
+  :ic (simulator-state-check sim)
   (let-match* ((('sim-state ss rs steps) sim)
 	       (('sender-out waiting-on-ack-ss packet) (sender ss))
 	       (('receiver-out new-rs ack) (receiver rs packet))
@@ -125,23 +133,22 @@
     `(sim-state ,new-ss ,new-rs ,(1- steps))))
 
 (check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0) 3))
-	'(sim-state (sendstate (2) 0) (recvstate (1) 0) 2))
+	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0) 2))
+
 (check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0) 1))
-	'(sim-state (sendstate () 0) (recvstate (4 5 6 1) 0) 0))
+	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0) 0))
 
-(definec more-items-than-steps (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate ss &) & steps) sim))
-    (>= (len ss) steps)))
-
-(definec simulator (sim :sim-state) :data
-  :ic (more-items-than-steps sim)
-  (let-match* ((('sim-state & ('recvstate rs &) steps) sim))
-	      (cond
-	       ((zp steps) rs)
-	       (T (simulator (simulator-step sim))))))
+(definec simulator (sim :sim-state) :result
+  (let-match* ((('sim-state sendstate ('recvstate rs &) steps) sim))
+    (cond
+     ((zp steps) rs)
+     ((not (seq-num-lt-data sendstate)) 'error)
+     (T (simulator (simulator-step sim))))))
 
 (check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0) 3))
 	'(4 5 6 1 2 3))
+(check= (simulator '(sim-state (sendstate (1 2 3) 3000) (recvstate (4 5 6) 0) 3))
+	'error)
 
 (definec simulator* (data :data steps :nat) :data
   :ic (>= (len data) steps)
