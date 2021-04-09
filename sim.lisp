@@ -84,7 +84,9 @@
 
 (defdata packet `(packet ,atom ,ack))
 
-(defdata event-deck (listof nil))
+(defdata event (enum '(ok drop)))
+(defdata event-deck (listof `(,event . ,event)))
+
 ;; Sim-state -- (sender-state receiver-state steps)
 (defdata sim-state `(sim-state ,sender-state ,receiver-state))
 
@@ -134,7 +136,12 @@
      ((or (equal sseq (len ss)) (lendp steps)) sim)
      (T (simulator-step (simulator sim (cdr steps)))))))
 
-(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0)) '(nil nil nil))
+(check= (simulator
+	 '(sim-state (sendstate (1 2 3) 0)
+		     (recvstate (4 5 6) 0)
+		     ((ok . ok)
+		      (ok . ok)
+		      (ok . ok))))
 	'(4 5 6 1 2 3))
 
 (definec simulator* (data :data steps :event-deck) :data
@@ -144,7 +151,10 @@
 		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0)) steps)))
     rs))
 
-(check= (simulator* '(4 5 6) '(nil nil nil))
+(check= (simulator* '(4 5 6)
+		    '((ok . ok)
+		      (ok . ok)
+		      (ok . ok)))
 	'(4 5 6))
 
 ;; ---- Proofs ----
