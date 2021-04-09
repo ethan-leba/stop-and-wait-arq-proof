@@ -69,8 +69,8 @@
     ('() body)
     (((pat val) . rst)
      `(let ((greatbadness ,val))
-       (case-match greatbadness
-	 (,pat (let-match* ,rst ,body)))))))
+	(case-match greatbadness
+	  (,pat (let-match* ,rst ,body)))))))
 
 ;; ---- Definitions ----
 
@@ -82,10 +82,11 @@
 
 (defdata ack nat)
 
-(defdata packet `(packet ,atom ,nat))
+(defdata packet `(packet ,atom ,ack))
 
+(defdata event-deck (listof nil))
 ;; Sim-state -- (sender-state receiver-state steps)
-(defdata sim-state `(sim-state ,sender-state ,receiver-state ,nat))
+(defdata sim-state `(sim-state ,sender-state ,receiver-state ,event-deck))
 
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out `(sender-out ,sender-state ,packet))
@@ -115,7 +116,7 @@
 
 (definec simulator-state-check (sim :sim-state) :bool
   (let-match* ((('sim-state & & steps) sim))
-    (posp steps)))
+    (consp steps)))
 
 (definec simulator-step (sim :sim-state) :sim-state
   :ic (simulator-state-check sim)
@@ -123,28 +124,34 @@
 	       (('sender-out waiting-on-ack-ss packet) (sender ss))
 	       (('receiver-out new-rs ack) (receiver rs packet))
 	       (new-ss (sender-ack waiting-on-ack-ss ack)))
-    `(sim-state ,new-ss ,new-rs ,(1- steps))))
+    `(sim-state ,new-ss ,new-rs ,(cdr steps))))
 
-(check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0) 3))
-	'(sim-state (sendstate (2) 1) (recvstate (1) 0) 2))
+(check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0) (nil nil nil)))
+	'(sim-state (sendstate (2) 1) (recvstate (1) 0) (nil nil)))
 
-(check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0) 1))
-	'(sim-state (sendstate () 1) (recvstate (4 5 6 1) 0) 0))
+(check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0) (nil)))
+	'(sim-state (sendstate () 1) (recvstate (4 5 6 1) 0) ()))
+
+(definec simulator-measure (sim :sim-state) :nat
+  "Retreives the length of the event-deck."
+  (len (cadddr sim)))
 
 (definec simulator (sim :sim-state) :data
+  (define (xargs :measure (simulator-measure sim)
+		 :termination-method :measure))
   (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
     (cond
-     ((or (lendp ss) (zp steps)) rs)
+     ((or (lendp ss) (lendp steps)) rs)
      (T (simulator (simulator-step sim))))))
 
-(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0) 3))
+(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0) (nil nil nil)))
 	'(4 5 6 1 2 3))
 
-(definec simulator* (data :data steps :nat) :data
-  :ic (>= (len data) steps)
+(definec simulator* (data :data steps :event-deck) :data
+  :ic (>= (len data) (len steps))
   (simulator `(sim-state (sendstate ,data 0) (recvstate nil 0) ,steps)))
 
-(check= (simulator* '(4 5 6) 3)
+(check= (simulator* '(4 5 6) '(nil nil nil))
 	'(4 5 6))
 
 ;; ---- Proofs ----
@@ -171,7 +178,13 @@
 
 (definec more-data-than-steps (sim :sim-state) :bool
   (let-match* ((('sim-state ('sendstate ss &) & steps) sim))
-    (>= (len ss) steps)))
+    (>= (len ss) (len steps))))
+
+;; Needed for a subgoal of take2-sim-relation
+(defthm take2-of-1-is-a-car-list
+  (implies (ne-tlp x)
+	   (equal (take2 x 1)
+		  (list (car x)))))
 
 (defthm take2-sim-relation
   (implies (and (sim-statep sim)
@@ -179,18 +192,18 @@
 		(more-data-than-steps sim))
 	   (equal (simulator sim)
 		  (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
-		    (app rs (take2 ss steps))))))
+		    (app rs (take2 ss (len steps)))))))
 
 (defthm sim*-equiv-take2
   (implies (and (datap d)
-		(natp n)
-		(>= (len d) n))
+		(event-deckp n)
+		(>= (len d) (len n)))
 	   (equal (simulator* d n) (take2 d n))))
 
 (defthm data-never-out-of-order
   (implies (and (datap d)
-		(natp n)
-		(>= (len d) n))
+		(event-deckp n)
+		(>= (len d) (len n)))
 	   (prefixp (simulator* d n) d)))
 
  
