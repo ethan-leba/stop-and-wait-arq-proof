@@ -148,21 +148,24 @@
   (let-match* ((('sim-state ('sendstate data seqnum) & &) sim))
     (>= (len data) seqnum)))
 
-(definec simulator (sim :sim-state) :data
+(definec simulator (sim :sim-state) :sim-state
   (define (xargs :measure (simulator-measure sim)
 		 :termination-method :measure))
   :ic (simulator-state-check2 sim)
   (let-match* ((('sim-state ('sendstate ss seqnum) ('recvstate rs &) steps) sim))
     (cond
-     ((or (equal seqnum (len ss)) (lendp steps)) rs)
+     ((or (equal seqnum (len ss)) (lendp steps)) sim)
      (T (simulator (simulator-step sim))))))
 
 (check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0) (nil nil nil)))
 	'(4 5 6 1 2 3))
 
 (definec simulator* (data :data steps :event-deck) :data
+  :function-contract-strictp nil
   :ic (>= (len data) (len steps))
-  (simulator `(sim-state (sendstate ,data 0) (recvstate nil 0) ,steps)))
+  (let-match* ((('sim-state & ('recvstate rs &) steps)
+		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0) ,steps))))
+    rs))
 
 (check= (simulator* '(4 5 6) '(nil nil nil))
 	'(4 5 6))
@@ -191,9 +194,22 @@
 	    (< (len x) (len y)))
 	   (prefixp (app x (list (nth (len x) y))) y)))
 
-;; (defthm simulator-prefix-property
-;;   (implies (and (simulator))
-;; 	   (prefixp (simulator* d n) d)))
+(definec rs-prefix-of-ssp (sim :sim-state) :bool
+  (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
+    (prefixp rs ss)))
+
+(definec seqnum-consistent (sim :sim-state) :bool
+  (let-match* ((('sim-state ('sendstate & sseq) ('recvstate rs rseq) steps) sim))
+    (and (== rseq sseq)
+	 (== (len rs) rseq))))
+
+(defthm simulator-prefix-property
+  (implies (and (sim-statep x)
+		(simulator-state-check2 x)
+		(rs-prefix-of-ssp x)
+		(seqnum-consistent x))
+	   (rs-prefix-of-ssp (simulator x)))
+  :hints (("Goal" :induct (simulator x))))
 
 (defthm data-never-out-of-order
   (implies (and (datap d)
