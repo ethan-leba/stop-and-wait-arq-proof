@@ -98,25 +98,33 @@
 
 ;; ---- Functions ----
 
-(definec sender (sender-state :sender-state) :sender-out
-  "This function represents the behavior of the sender in the stop-and-wait ARQ."
-  (let-match* ((('sendstate to-send seq-num) sender-state))
-    `(sender-out (sendstate ,to-send ,seq-num)
-		 (packet ,(car to-send) ,seq-num))))
+(definec seq-num-okp (sender-state :sender-state) :bool
+  (let-match* ((('sendstate data seq-num) sender-state))
+    (> (len data) seq-num)))
 
+(definec sender (sender-state :sender-state) :sender-out
+  :ic (seq-num-okp sender-state)
+  "This function represents the behavior of the sender in the stop-and-wait ARQ."
+  (let-match* ((('sendstate data seq-num) sender-state))
+    `(sender-out (sendstate ,data ,seq-num)
+		 (packet ,(nth seq-num data) ,seq-num))))
+
+(set-ignore-ok t)
 (definec sender-ack (sender-state :sender-state ack :ack) :sender-state
+  :ic (seq-num-okp sender-state)
   (let-match* ((('sendstate to-send seq-num) sender-state))
-    `(sendstate ,(cdr to-send) ,(max seq-num ack))))
+    `(sendstate ,to-send ,(1+ seq-num))))
 
 (definec receiver (receiver-state :receiver-state packet :packet) :receiver-out
   (let-match* ((('recvstate stored &) receiver-state))
     (case-match packet
       (('packet data seq-num)
-       `(receiver-out (recvstate ,(app stored (list data)) ,seq-num) ,(1+ seq-num))))))
+       `(receiver-out (recvstate ,(app stored (list data)) ,seq-num) ,seq-num)))))
 
 (definec simulator-state-check (sim :sim-state) :bool
-  (let-match* ((('sim-state & & steps) sim))
-    (consp steps)))
+  (let-match* ((('sim-state sender-state & steps) sim))
+    (and (consp steps)
+	 (seq-num-okp sender-state))))
 
 (definec simulator-step (sim :sim-state) :sim-state
   :ic (simulator-state-check sim)
@@ -127,21 +135,26 @@
     `(sim-state ,new-ss ,new-rs ,(cdr steps))))
 
 (check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0) (nil nil nil)))
-	'(sim-state (sendstate (2) 1) (recvstate (1) 0) (nil nil)))
+	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0) (nil nil)))
 
 (check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0) (nil)))
-	'(sim-state (sendstate () 1) (recvstate (4 5 6 1) 0) ()))
+	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0) ()))
 
 (definec simulator-measure (sim :sim-state) :nat
   "Retreives the length of the event-deck."
   (len (cadddr sim)))
 
+(definec simulator-state-check2 (sim :sim-state) :bool
+  (let-match* ((('sim-state ('sendstate data seqnum) & &) sim))
+    (>= (len data) seqnum)))
+
 (definec simulator (sim :sim-state) :data
   (define (xargs :measure (simulator-measure sim)
 		 :termination-method :measure))
-  (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
+  :ic (simulator-state-check2 sim)
+  (let-match* ((('sim-state ('sendstate ss seqnum) ('recvstate rs &) steps) sim))
     (cond
-     ((or (lendp ss) (lendp steps)) rs)
+     ((or (equal seqnum (len ss)) (lendp steps)) rs)
      (T (simulator (simulator-step sim))))))
 
 (check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0) (nil nil nil)))
@@ -156,12 +169,6 @@
 
 ;; ---- Proofs ----
 
-(definec take2 (data :tl n :nat) :tl
-  :ic (>= (len data) n)
-  (if (zp n)
-      '()
-    (cons (car data) (take2 (cdr data) (1- n)))))
-
 ;; Checks if x is a prefix of y
 (definec prefixp (x :tl y :tl) :bool
   (cond
@@ -170,35 +177,23 @@
    (T (and (equal (car x) (car y))
 	   (prefixp (cdr x) (cdr y))))))
 
-(defthm take2-always-a-prefix
-  (implies (and (tlp x)
-		(natp n)
-		(>= (len x) n))
-	   (prefixp (take2 x n) x)))
+;; First confirm test? works
+(test? (implies (and (datap d)
+		     (event-deckp n)
+		     (>= (len d) (len n)))
+		(prefixp (simulator* d n) d)))
 
-(definec more-data-than-steps (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate ss &) & steps) sim))
-    (>= (len ss) (len steps))))
+(defthm prefix-nth
+  (implies (and
+	    (tlp x)
+	    (tlp y)
+	    (prefixp x y)
+	    (< (len x) (len y)))
+	   (prefixp (app x (list (nth (len x) y))) y)))
 
-;; Needed for a subgoal of take2-sim-relation
-(defthm take2-of-1-is-a-car-list
-  (implies (ne-tlp x)
-	   (equal (take2 x 1)
-		  (list (car x)))))
-
-(defthm take2-sim-relation
-  (implies (and (sim-statep sim)
-		(simulator-state-check sim)
-		(more-data-than-steps sim))
-	   (equal (simulator sim)
-		  (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
-		    (app rs (take2 ss (len steps)))))))
-
-(defthm sim*-equiv-take2
-  (implies (and (datap d)
-		(event-deckp n)
-		(>= (len d) (len n)))
-	   (equal (simulator* d n) (take2 d n))))
+;; (defthm simulator-prefix-property
+;;   (implies (and (simulator))
+;; 	   (prefixp (simulator* d n) d)))
 
 (defthm data-never-out-of-order
   (implies (and (datap d)
