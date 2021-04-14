@@ -86,7 +86,7 @@
 
 (defdata event-deck (listof nil))
 ;; Sim-state -- (sender-state receiver-state steps)
-(defdata sim-state `(sim-state ,sender-state ,receiver-state ,event-deck))
+(defdata sim-state `(sim-state ,sender-state ,receiver-state))
 
 ;; LHS contains the sender's updated state, RHS is the packet to be sent
 (defdata sender-out `(sender-out ,sender-state ,packet))
@@ -104,48 +104,44 @@
 
 (set-ignore-ok t)
 (definec simulator-state-check (sim :sim-state) :bool
-  (let-match* ((('sim-state sender-state & steps) sim))
-    (and (consp steps)
-	 (seq-num-okp sender-state))))
+  (let-match* ((('sim-state sender-state &) sim))
+    (seq-num-okp sender-state)))
 
 (definec simulator-step (sim :sim-state) :sim-state
-  :ic (simulator-state-check sim)
-  (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq) steps) sim))
-    `(sim-state (sendstate ,sdata ,(1+ sseq))
-		(recvstate ,(app rdata (list (nth sseq sdata))) ,rseq)
-		,(cdr steps))))
+  (if (simulator-state-check sim)
+      (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq)) sim))
+	`(sim-state (sendstate ,sdata ,(1+ sseq))
+		    (recvstate ,(app rdata (list (nth sseq sdata))) ,rseq)))
+    sim))
 
-(check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0) (nil nil nil)))
+(check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0)))
 	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0) (nil nil)))
 
-(check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0) (nil)))
+(check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0)))
 	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0) ()))
 
-(definec simulator-measure (sim :sim-state) :nat
-  "Retreives the length of the event-deck."
-  (len (cadddr sim)))
 
 (definec simulator-state-check2 (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate data seqnum) & &) sim))
+  (let-match* ((('sim-state ('sendstate data seqnum) &) sim))
     (>= (len data) seqnum)))
 
-(definec simulator (sim :sim-state) :sim-state
-  (define (xargs :measure (simulator-measure sim)
-		 :termination-method :measure))
+(definec simulator (sim :sim-state steps :event-deck) :sim-state
+  ;; (define (xargs :measure (simulator-measure sim)
+  ;; 		 :termination-method :measure))
   :ic (simulator-state-check2 sim)
-  (let-match* ((('sim-state ('sendstate ss seqnum) ('recvstate rs &) steps) sim))
+  (let-match* ((('sim-state ('sendstate ss sseq) ('recvstate rs rseq)) sim))
     (cond
-     ((or (equal seqnum (len ss)) (lendp steps)) sim)
-     (T (simulator (simulator-step sim))))))
+     ((or (equal sseq (len ss)) (lendp steps)) sim)
+     (T (simulator-step (simulator sim (cdr steps)))))))
 
-(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0) (nil nil nil)))
+(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0)) '(nil nil nil))
 	'(4 5 6 1 2 3))
 
 (definec simulator* (data :data steps :event-deck) :data
   :function-contract-strictp nil
   :ic (>= (len data) (len steps))
-  (let-match* ((('sim-state & ('recvstate rs &) steps)
-		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0) ,steps))))
+  (let-match* ((('sim-state & ('recvstate rs &))
+		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0)) steps)))
     rs))
 
 (check= (simulator* '(4 5 6) '(nil nil nil))
@@ -209,14 +205,24 @@
 	   ;; 			     (x (CADR (CADDR SIM)))
 	   ;; 			     (y (CADR (CADR sim)))))
 	   )))
+
+(skip-proofs
+ (defthm simulator-step-prefix-property
+   (implies (and (sim-statep sim)
+		 (simulator-state-check2 sim)
+		 (rs-prefix-of-ssp sim)
+		 (seqnum-consistent sim))
+	    (rs-prefix-of-ssp (simulator-step sim)))))
+
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
   (implies (and (sim-statep sim)
+		(event-deckp evt)
 		(simulator-state-check2 sim)
 		(rs-prefix-of-ssp sim)
 		(seqnum-consistent sim))
-	   (rs-prefix-of-ssp (simulator sim)))
-  :hints (("Goal" :induct (simulator sim))))
+	   (rs-prefix-of-ssp (simulator sim evt)))
+  :hints (("Goal" :induct (simulator sim evt))))
 
 (defthm data-never-out-of-order
   (implies (and (datap d)
