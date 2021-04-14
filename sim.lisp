@@ -198,18 +198,39 @@
   (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
     (prefixp rs ss)))
 
+(in-theory (disable (:definition rs-prefix-of-ssp)))
+
 (definec seqnum-consistent (sim :sim-state) :bool
   (let-match* ((('sim-state ('sendstate & sseq) ('recvstate rs rseq) steps) sim))
     (and (== rseq sseq)
 	 (== (len rs) rseq))))
 
+(defthm receiver-prefix-property
+  (implies (and (receiver-statep rs)
+		(prefixp (cadr rs) ss))
+	   (receiver rs `(packet ,(car ss) ,(len (cadr rs)))))
+  :hints (("Goal" :do-not-induct t)))
+
+(defthm simulator-step-prefix-property
+  (implies (and (sim-statep sim)
+		(simulator-state-check2 sim)
+		(rs-prefix-of-ssp sim)
+		(seqnum-consistent sim))
+	   (rs-prefix-of-ssp (simulator-step sim)))
+  :hints (("Goal" :do-not-induct t
+	   :do-not generalize)
+	  ("Goal'''" :use (:instance prefix-nth
+				     (x (CADR (CADDR SIM)))
+				     (y (CADR (CADR sim)))))))
+
 (defthm simulator-prefix-property
-  (implies (and (sim-statep x)
-		(simulator-state-check2 x)
-		(rs-prefix-of-ssp x)
-		(seqnum-consistent x))
-	   (rs-prefix-of-ssp (simulator x)))
-  :hints (("Goal" :induct (simulator x))))
+  (implies (and (sim-statep sim)
+		(simulator-state-check2 sim)
+		(rs-prefix-of-ssp sim)
+		(seqnum-consistent sim))
+	   (rs-prefix-of-ssp (simulator sim)))
+  :hints (("Goal" :induct (simulator sim))
+	  ))
 
 (defthm data-never-out-of-order
   (implies (and (datap d)
