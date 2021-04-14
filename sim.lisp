@@ -182,37 +182,14 @@
     (and (== rseq sseq)
 	 (== (len rs) rseq))))
 
-(defthm foo
+(defthm simulator-step-prefix-property
   (implies (and (sim-statep sim)
-		(simulator-state-check sim)
+		(simulator-state-check2 sim)
 		(rs-prefix-of-ssp sim)
 		(seqnum-consistent sim))
-	   (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq) steps) sim))
-	     (prefixp (app rdata (list (nth sseq sdata))) sdata)))
-  :hints (("Goal" :do-not-induct t)
-	  ("Goal'4'" :use ((:instance prefix-nth (x rdata) (y sdata))))))
-
-(skip-proofs
- (defthm simulator-step-prefix-property
-   (implies (and (sim-statep sim)
-		 (simulator-state-check2 sim)
-		 (rs-prefix-of-ssp sim)
-		 (seqnum-consistent sim))
-	    (rs-prefix-of-ssp (simulator-step sim)))
-   :hints (("Goal" :do-not-induct t
-	    :do-not generalize)
-	   ;; ("Goal'''" :use (:instance prefix-nth
-	   ;; 			     (x (CADR (CADDR SIM)))
-	   ;; 			     (y (CADR (CADR sim)))))
-	   )))
-
-(skip-proofs
- (defthm simulator-step-prefix-property
-   (implies (and (sim-statep sim)
-		 (simulator-state-check2 sim)
-		 (rs-prefix-of-ssp sim)
-		 (seqnum-consistent sim))
-	    (rs-prefix-of-ssp (simulator-step sim)))))
+	   (rs-prefix-of-ssp (simulator-step sim)))
+  :hints (("Goal" :do-not-induct t
+	   :do-not generalize)))
 
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
@@ -224,10 +201,9 @@
 	   (rs-prefix-of-ssp (simulator sim evt)))
   :hints (("Goal" :induct (simulator sim evt))))
 
-(defthm data-never-out-of-order
-  (implies (and (datap d)
-		(event-deckp n)
-		(>= (len d) (len n)))
-	   (prefixp (simulator* d n) d)))
-
- 
+;; (defthm data-never-out-of-order
+;;   (implies (and (datap d)
+;; 		(event-deckp n)
+;; 		(>= (len d) (len n)))
+;; 	   (prefixp (simulator* d n) d))
+;;   :hints (("Goal" :use simulator*-definition-rule)))
