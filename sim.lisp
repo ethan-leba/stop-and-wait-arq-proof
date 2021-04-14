@@ -117,10 +117,10 @@
     sim))
 
 (check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0)))
-	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0) (nil nil)))
+	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0)))
 
 (check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0)))
-	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0) ()))
+	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0)))
 
 
 (definec simulator-state-check2 (sim :sim-state) :bool
@@ -138,17 +138,17 @@
 
 (check= (simulator
 	 '(sim-state (sendstate (1 2 3) 0)
-		     (recvstate (4 5 6) 0)
-		     ((ok . ok)
-		      (ok . ok)
-		      (ok . ok))))
+		     (recvstate (4 5 6) 0))
+	 '((ok . ok)
+	   (ok . ok)
+	   (ok . ok)))
 	'(4 5 6 1 2 3))
 
 (definec simulator* (data :data steps :event-deck) :data
   :function-contract-strictp nil
   :ic (>= (len data) (len steps))
   (let-match* ((('sim-state & ('recvstate rs &))
-		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0)) steps)))
+		(simulator `(sim-state (sendstate ,data 0) (recvstate nil  0)) steps)))
     rs))
 
 (check= (simulator* '(4 5 6)
