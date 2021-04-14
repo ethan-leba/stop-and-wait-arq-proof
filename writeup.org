@@ -1,0 +1,81 @@
+#+TITLE: Proving correctness of the stop-and-wait ARQ
+
+* Draft
+
+** Work completed
+
+- Implemented the simulator with packet drops, ACKs, sequence numbers,
+  etc.
+- Proved correctness for a model without packet drops.
+- Begun work on writing up the introduction and explanation of the
+  problem.
+  
+** To-do
+
+- Complete proof of model with packet drops: 'The data contained by
+  the receiver will always be a prefix of what the original data of
+  the sender is.'
+- Thoroughly document the code.
+- Set up a README for the repository.
+- Complete and proof-read writeup.
+
+WIP code can be accessed [[https://github.com/ethan-leba/stop-and-wait-arq-proof][here]].
+
+** Proof sketch
+
+
+
+* Introduction
+
+Networking is one of the most essential features of computing today,
+and is a utility that our society is increasingly reliant on. As
+network communication is used so widely, it must be robust to various
+conditions (?). One particular feature that we will focus on in this
+paper is the 
+
+In this paper, we will demonstrate the correctness of the
+stop-and-wait ARQ (Automatic Repeat Request) protocol. Stop-and-wait
+is used in bluetooth communication, and can be seen as a special case
+of TCP with a sliding window of size 1.
+
+** Explanation of the protocol
+
+For simplicity, the implementation in this paper uses uni-directional
+communication, with a sender and a receiver. Both the sender and the
+receiver start with a sequence number starting at zero, representing
+the last packet sent or received, respectively.
+
+At the beginning of each 'round', the sender will send out a packet.
+
+*** Sender behavior
+
+The sender will perform the following algorithm, where k is the
+current sequence number.
+
+1. Send out the k'th chunk of data in a packet, along with the
+   sequence number.
+2. Wait for a response, or until a timeout has been met.
+   1. If the timeout occurs, send the packet again.
+   2. If an ACK is received with the expected number, increment the
+      sequence number and send the next packet.
+   3. If an ACK is received with a number less than the expected, send
+      the packet again.
+
+
+- Packet is lost. :: The receiver will not send an ACK, and so the
+  sequence number will remain the same on both ends.
+  
+- Packet is received but the ACK is lost. :: The receiver will
+  increment it's sequence number, but the sender will not.
+- Packet is received but the sequence number is stale. :: The receiver will
+  not increment it's sequence number, and send out an ack.
+
+** Simplifications of the model
+
+For the simplicity of the proof, we will omit the following details.
+
+- One way communication. :: We will 
+
+- Handshakes and teardowns
+
+- Timeouts
