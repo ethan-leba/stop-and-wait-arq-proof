@@ -4,78 +4,151 @@
 
 ** Work completed
 
-- Implemented the simulator with packet drops, ACKs, sequence numbers,
-  etc.
+- Implemented the data types and functions for a simulator with packet
+  drops, ACKs, sequence numbers, etc.
 - Proved correctness for a model without packet drops.
 - Begun work on writing up the introduction and explanation of the
   problem.
   
 ** To-do
 
-- Complete proof of model with packet drops: 'The data contained by
-  the receiver will always be a prefix of what the original data of
-  the sender is.'
-- Thoroughly document the code.
+- Complete proof of model with packet drops. The work to be done is
+  listed in the Proof section.
+- Thoroughly document the code, and provide tests for clarity.
 - Set up a README for the repository.
-- Complete and proof-read writeup.
+- Complete and proof-read writeup. The sections that will be added for
+  the final draft are marked with TODO.
 
 WIP code can be accessed [[https://github.com/ethan-leba/stop-and-wait-arq-proof][here]].
-
-** Proof sketch
-
-
 
 * Introduction
 
 Networking is one of the most essential features of computing today,
 and is a utility that our society is increasingly reliant on. As
-network communication is used so widely, it must be robust to various
-conditions (?). One particular feature that we will focus on in this
-paper is the 
+network communication facilitates communication between folks
+potentially across the globe in any range of conditions, communication
+must be robust to various disruptions, such as lossy networks,
+malicious agents, delay, etc.
 
-In this paper, we will demonstrate the correctness of the
-stop-and-wait ARQ (Automatic Repeat Request) protocol. Stop-and-wait
+In this paper, we will demonstrate the correctness of our particular
+implementation of the stop-and-wait ARQ (Automatic Repeat Request)
+protocol, a technique for dealing with lossy networks. Stop-and-wait
 is used in bluetooth communication, and can be seen as a special case
-of TCP with a sliding window of size 1.
+of TCP with a sliding window of size 1. In particular, we will be
+proving the following theorem.
 
-** Explanation of the protocol
+**The data contained by the receiver will always be a prefix of the
+data being sent by the sender, regardless of network conditions.**
 
-For simplicity, the implementation in this paper uses uni-directional
-communication, with a sender and a receiver. Both the sender and the
-receiver start with a sequence number starting at zero, representing
-the last packet sent or received, respectively.
-
-At the beginning of each 'round', the sender will send out a packet.
-
-*** Sender behavior
-
-The sender will perform the following algorithm, where k is the
-current sequence number.
-
-1. Send out the k'th chunk of data in a packet, along with the
-   sequence number.
-2. Wait for a response, or until a timeout has been met.
-   1. If the timeout occurs, send the packet again.
-   2. If an ACK is received with the expected number, increment the
-      sequence number and send the next packet.
-   3. If an ACK is received with a number less than the expected, send
-      the packet again.
-
-
-- Packet is lost. :: The receiver will not send an ACK, and so the
-  sequence number will remain the same on both ends.
-  
-- Packet is received but the ACK is lost. :: The receiver will
-  increment it's sequence number, but the sender will not.
-- Packet is received but the sequence number is stale. :: The receiver will
-  not increment it's sequence number, and send out an ack.
+** Approach
+   
+After some brief investigation, I've found that there are no widely
+available pre-existing proofs of this protocol in ACL2. Furthermore,
+there are many variations on the stop-and-wait protocol, so I suspect
+that it's unlikely this specific model has been implemented and proven
+elsewhere.
 
 ** Simplifications of the model
 
 For the simplicity of the proof, we will omit the following details.
 
-- One way communication. :: We will 
+- Two way communication. :: We will use a one way communication model,
+  where the receiver cannot return any data.
 
-- Handshakes and teardowns
+- Handshakes and teardowns. :: No handshakes and teardowns will take
+  place, as the communication is one-to-one.
 
-- Timeouts
+- Packet delay/timeouts. :: We will assume that a packet will either
+  be sent, or dropped, and that the sender/receiver can determine with
+  certainty that a packed is dropped and not delayed.
+
+- EOF. :: For our model, there is no way for the receiver to know if
+  the data is complete. The sender will stop sending data once it has
+  sent all of it.
+  
+** Explanation of the protocol
+
+In this Both the sender and the receiver start with a sequence number starting
+at zero, representing the last packet sent or received, respectively.
+
+At the beginning of each 'round', the sender will send out a packet.
+
+*** Sender behavior
+
+The sender will perform the following algorithm in a loop.
+
+1. Send out the (sequence number)'th chunk of data in a packet, along
+   with the sequence number.
+2. If no ACK is received, send the packet again.
+3. If an ACK is received with the expected number, increment the
+    sequence number and send the next packet.
+4. If an ACK is received with a number less than the expected, send
+    the packet again.
+
+*** Receiver behavior
+
+The receiver will perform the following algorithm in a loop.
+
+1. Wait for a packet.
+   1. If a packet is received with a sequence number one greater than
+      the current sequence number, then store the packet data and
+      increment the sequence number.
+   2. Send an ACK containing the current sequence number. 
+
+* Implementation
+
+** Overall structure
+
+The simulator is represented by a set of functions, 'simulator-step',
+and 'simulator'. 
+
+'simulator' takes two arguments, 'sim-state' and
+'event-deck'. 'sim-state' represents the current conditions of the
+simulation: the sequence numbers of the sender/receiver, data
+stored/to be sent. 'event-deck' represents the conditions in the
+network for each round, like shuffling a 'sorry' deck.
+
+'simulator-step' performs a single round, following
+the algorithm listed above. It takes two arguments, the simulator
+state, and an event.
+
+The events that can occur are: Drop packet, Drop ACK, Drop both, Drop
+neither.
+
+** Proof (WIP)
+
+The theorem we stated in the introduction is represented by the
+following 'defthm':
+
+#+begin_src lisp
+(defthm simulator-prefix-property
+  (implies (and (sim-statep sim)
+                (event-deckp evt)
+                (simulator-state-check2 sim)
+                (rs-prefix-of-ssp sim)
+                (seqnum-consistent sim))
+           (rs-prefix-of-ssp (simulator sim evt)))
+  :hints (("Goal" :induct (simulator sim evt))))
+#+end_src
+
+We will prove this inductively, by showing that:
+
+1. The base case maintains the prefix property.
+2. The inductive step, which is simply applying 'simulator-step' to
+   the recursion, maintains the property.
+
+The base case is trivial, as the simulator simply returns the state of
+the simulator if there are no events left. So we must show that each
+simulator step maintains the prefix property.
+
+...
+
+Work left to do:
+- Prove that the simulator step prefix property holds in the face of
+  packet drops.
+  
+* Methodology (TODO)
+  
+* Conclusion (TODO)
+** Metrics (TODO)
+** Summary (TODO)
