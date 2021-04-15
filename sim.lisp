@@ -131,12 +131,19 @@
 (check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate () 0)) '(ok ok ok))
 	'(4 5 6 1 2 3))
 
-;; (definec simulator* (data :data steps :event-deck) :data
-;;   :function-contract-strictp nil
-;;   :ic (>= (len data) (len steps))
-;;   (let-match* ((('sim-state & ('recvstate rs &))
-;; 		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0)) steps)))
-;;     rs))
+(skip-proofs
+ (defthm simulator-function-contract
+   (implies (and (sim-statep sim)
+		 (event-deckp evt))
+	    (sim-statep (simulator sim evt)))))
+
+(verify-guards simulator)
+
+(definec simulator* (data :tl steps :event-deck) :tl
+   :function-contract-strictp nil
+   :body-contracts-strictp nil
+   (let ( (result (simulator `(sim-state (sendstate ,data 0) (recvstate nil 0)) steps)))
+     (car (cdaddr result))))
 
 ;; (check= (simulator* '(4 5 6) '(nil nil nil))
 ;; 	'(4 5 6))
@@ -150,12 +157,6 @@
    ((lendp y) (lendp x))
    (T (and (equal (car x) (car y))
 	   (prefixp (cdr x) (cdr y))))))
-
-;; First confirm test? works
-(test? (implies (and (datap d)
-		     (event-deckp n)
-		     (>= (len d) (len n)))
-		(prefixp (simulator* d n) d)))
 
 (skip-proofs
  (defthm prefix-nth
@@ -194,11 +195,7 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 					  (x sim9)
 					  (index (len sim9))))))
 
-;; (skip-proofs
-;;  (defthm simulator-function-contract
-;;    (implies (and (sim-statep sim)
-;; 		 (event-deckp evt))
-;; 	    (sim-statep (simulator sim evt)))))
+
 
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
@@ -207,3 +204,45 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 		(rs-prefix-of-ssp sim))
 	   (rs-prefix-of-ssp (simulator sim evt)))
   :hints (("Goal" :induct (simulator sim evt))))
+
+(defthm simulator*-base-is-a-prefix
+  (implies (tlp data)
+	   (rs-prefix-of-ssp `(sim-state (sendstate ,data 0) (recvstate nil 0)))))
+
+(defthm rs-prefix-of-ssp-extraction
+  (implies (and (tlp send)
+		(tlp recv)
+		(sim-statep `(sim-state (sendstate ,send ,sseq)
+					(sendstate ,recv ,rseq)))
+		(rs-prefix-of-ssp `(sim-state (sendstate ,send ,sseq)
+					      (sendstate ,recv ,rseq))))
+	   (prefixp send recv)))
+
+(thm
+  (implies (and (tlp data)
+		(event-deckp evt)
+		(sim-statep `(sim-state (sendstate ,data 0)
+					(recvstate nil 0))))
+	   (rs-prefix-of-ssp
+	    (simulator `(sim-state (sendstate ,data 0)
+				   (recvstate nil 0)) steps)))
+  :hints (("Goal" :do-not-induct t)
+	  ("Subgoal 16" :use (:instance simulator-function-contract
+					(sim `(sim-state (sendstate ,data 0) (recvstate nil 0)))
+					(evt evt)))))
+
+(defthm simulator*-prefix-property
+  (implies (and (tlp data)
+		(event-deckp evt))
+	   (prefixp (simulator* data evt) data))
+  :hints (("Goal" :do-not-induct t)
+	  ("Goal'" :use ((:instance simulator*-base-is-a-prefix
+				    (data DATA))
+			 (:instance simulator-step-prefix-property
+				    (sim (SIMULATOR (LIST* 'SIM-STATE
+							   (LIST* 'SENDSTATE DATA '(0))
+							   '((RECVSTATE NIL 0)))
+						    EVT)))
+			 (:instance rs-prefix-of-ssp-extraction
+				    (send data)
+				    (recv '()))))))
