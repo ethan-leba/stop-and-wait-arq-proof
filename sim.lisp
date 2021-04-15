@@ -97,10 +97,17 @@
   (if (not (simulator-state-check sim)) sim
     (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata &)) sim))
       (cond
+       ((== event 'drop-packet) sim)
        ((and (== event 'ok) (== sseq (len rdata)))
 	`(sim-state (sendstate ,sdata ,(1+ sseq))
 		    (recvstate ,(app rdata (list (nth sseq sdata))) 0)))
-       (T sim)))))
+       ((and (== event 'ok) (!= sseq (len rdata)))
+	`(sim-state (sendstate ,sdata ,(len rdata))
+		    (recvstate ,rdata 0)))
+       ((and (== event 'drop-ack) (== sseq (len rdata)))
+	`(sim-state (sendstate ,sdata ,sseq)
+		    (recvstate ,(app rdata (list (nth sseq sdata))) 0)))
+       ((and (== event 'drop-ack) (!= sseq (len rdata))) sim)))))
 
 (check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0)) 'ok)
 	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0)))
@@ -150,14 +157,15 @@
 		     (>= (len d) (len n)))
 		(prefixp (simulator* d n) d)))
 
-(defthm prefix-nth
-  (implies (and
-	    (tlp x)
-	    (tlp y)
-	    (prefixp x y)
-	    (< (len x) (len y))
-	    (== index (len x)))
-	   (prefixp (app x (list (nth index y))) y)))
+(skip-proofs
+ (defthm prefix-nth
+   (implies (and
+	     (tlp x)
+	     (tlp y)
+	     (prefixp x y)
+	     (< (len x) (len y))
+	     (== index (len x)))
+	    (prefixp (app x (list (nth index y))) y))))
 
 (definec rs-prefix-of-ssp (sim :sim-state) :bool
   (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &)) sim))
@@ -177,16 +185,20 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 	   (rs-prefix-of-ssp (simulator-step sim evt)))
   :hints (("Goal" :do-not-induct t
 	   :do-not generalize)
+	  ("Subgoal 5'5'" :use (:instance prefix-nth
+					  (y sim8)
+					  (x sim9)
+					  (index (len sim9))))
 	  ("Subgoal 2'5'" :use (:instance prefix-nth
 					  (y sim8)
 					  (x sim9)
 					  (index (len sim9))))))
 
-(skip-proofs
- (defthm simulator-function-contract
-   (implies (and (sim-statep sim)
-		 (event-deckp evt))
-	    (sim-statep (simulator sim evt)))))
+;; (skip-proofs
+;;  (defthm simulator-function-contract
+;;    (implies (and (sim-statep sim)
+;; 		 (event-deckp evt))
+;; 	    (sim-statep (simulator sim evt)))))
 
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
