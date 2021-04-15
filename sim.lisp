@@ -74,27 +74,15 @@
 
 ;; ---- Definitions ----
 
-(defdata data (listof atom))
+(defdata sender-state `(sendstate ,tl ,nat))
 
-(defdata sender-state `(sendstate ,data ,nat))
-
-(defdata receiver-state `(recvstate ,data ,nat))
+(defdata receiver-state `(recvstate ,tl ,nat))
 
 (defdata ack nat)
 
-(defdata packet `(packet ,atom ,ack))
-
-(defdata event-deck (listof nil))
+(defdata event-deck (listof 'ok))
 ;; Sim-state -- (sender-state receiver-state steps)
 (defdata sim-state `(sim-state ,sender-state ,receiver-state))
-
-;; LHS contains the sender's updated state, RHS is the packet to be sent
-(defdata sender-out `(sender-out ,sender-state ,packet))
-
-;; LHS contains the sender's updated state, RHS is the packet to be sent
-(defdata receiver-out `(receiver-out ,receiver-state ,ack))
-
-(defdata result (oneof data 'error))
 
 ;; ---- Functions ----
 
@@ -109,7 +97,6 @@
 	 (== sseq rseq))))
 
 (definec simulator-step (sim :sim-state) :sim-state
-  :function-contract-strictp nil
   (if (and (simulator-state-check sim)
 	   (sequence-number-sanep sim))
       (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq)) sim))
@@ -128,13 +115,13 @@
   (let-match* ((('sim-state ('sendstate data seqnum) &) sim))
     (>= (len data) seqnum)))
 
-(set-ignore-ok :warn)
 (definec simulator (sim :sim-state steps :event-deck) :sim-state
+  :timeout 120
   :function-contract-strictp nil
   :body-contracts-strictp nil
   :skip-tests t
   :ic (simulator-state-check2 sim)
-  (let-match* ((('sim-state ('sendstate ss sseq) ('recvstate rs rseq)) sim))
+  (let-match* ((('sim-state ('sendstate ss sseq) &) sim))
     (cond
      ((or (equal sseq (len ss)) (lendp steps)) sim)
      (T (simulator-step (simulator sim (cdr steps)))))))
@@ -180,10 +167,6 @@
   (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &)) sim))
     (prefixp rs ss)))
 
-(definec seqnum-consistent (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate & sseq) ('recvstate rs rseq)) sim))
-    (== (len rs) rseq)))
-
 #| == The proof sketch ==
 
 We know receiver state is a prefix of sender state (via C3), and that
@@ -193,19 +176,11 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 
 (defthm simulator-step-prefix-property
   (implies (and (sim-statep sim)
-		;; (simulator-state-check2 sim)
-		(rs-prefix-of-ssp sim)
-		;; (seqnum-consistent sim)
-		)
+		(rs-prefix-of-ssp sim))
 	   (rs-prefix-of-ssp (simulator-step sim)))
   :hints (("Goal" :do-not-induct t
 	   :do-not generalize)
 	  ("Subgoal 3'6'" :use (:instance prefix-nth (y sim8) (x sim9)))))
-
-(defthm foobar
-  (implies (and (sim-statep sim)
-		(event-deckp evt))
-	   (sim-statep (simulator sim evt))))
 
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
@@ -213,10 +188,6 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 		(event-deckp evt)
 		(simulator-state-check2 sim)
 		(rs-prefix-of-ssp sim)
-		(sim-statep (simulator sim evt)))
+		)
 	   (rs-prefix-of-ssp (simulator sim evt)))
-  :hints (("Goal" :induct (simulator sim evt))
-	  ;; ("Subgoal *1/2" :use (:instance simulator-definition-rule))
-	  ;; ("Subgoal *1/2'" :use (:instance simulator-step-prefix-property (sim (SIMULATOR SIM (CDR EVT)))))
-	  ;; ("Subgoal *1/2.87" :use (:instance simulator-step-prefix-property (sim (SIMULATOR SIM (CDR EVT)))))
-	  ))
+  :hints (("Goal" :induct (simulator sim evt))))
