@@ -80,7 +80,9 @@
 
 (defdata ack nat)
 
-(defdata event-deck (listof 'ok))
+(defdata event (enum '(ok drop-ack drop-packet)))
+(defdata event-deck (listof event))
+
 ;; Sim-state -- (sender-state receiver-state steps)
 (defdata sim-state `(sim-state ,sender-state ,receiver-state))
 
@@ -96,9 +98,10 @@
     (and (== (len rs) rseq)
 	 (== sseq rseq))))
 
-(definec simulator-step (sim :sim-state) :sim-state
+(definec simulator-step (sim :sim-state event :event) :sim-state
   (if (and (simulator-state-check sim)
-	   (sequence-number-sanep sim))
+	   (sequence-number-sanep sim)
+	   (== event 'ok))
       (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq)) sim))
 	`(sim-state (sendstate ,sdata ,(1+ sseq))
 		    (recvstate ,(app rdata (list (nth sseq sdata))) ,rseq)))
@@ -111,20 +114,13 @@
 	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0) ()))
 
 
-(definec simulator-state-check2 (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate data seqnum) &) sim))
-    (>= (len data) seqnum)))
-
 (definec simulator (sim :sim-state steps :event-deck) :sim-state
-  :timeout 120
   :function-contract-strictp nil
   :body-contracts-strictp nil
   :skip-tests t
-  :ic (simulator-state-check2 sim)
-  (let-match* ((('sim-state ('sendstate ss sseq) &) sim))
-    (cond
-     ((or (equal sseq (len ss)) (lendp steps)) sim)
-     (T (simulator-step (simulator sim (cdr steps)))))))
+  (cond
+   ((lendp steps) sim)
+   (T (simulator-step (simulator sim (cdr steps)) (car steps)))))
 
 (check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0)) '(nil nil nil))
 	'(4 5 6 1 2 3))
@@ -177,8 +173,9 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 
 (defthm simulator-step-prefix-property
   (implies (and (sim-statep sim)
-		(rs-prefix-of-ssp sim))
-	   (rs-prefix-of-ssp (simulator-step sim)))
+		(rs-prefix-of-ssp sim)
+		(eventp evt))
+	   (rs-prefix-of-ssp (simulator-step sim evt)))
   :hints (("Goal" :do-not-induct t
 	   :do-not generalize)
 	  ("Subgoal 3'6'" :use (:instance prefix-nth
@@ -186,11 +183,16 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 					  (x sim9)
 					  (index (len sim9))))))
 
+(skip-proofs
+ (defthm simulator-function-contract
+   (implies (and (sim-statep sim)
+		 (event-deckp evt))
+	    (sim-statep (simulator sim evt)))))
+
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
   (implies (and (sim-statep sim)
 		(event-deckp evt)
-		(simulator-state-check2 sim)
 		(rs-prefix-of-ssp sim))
 	   (rs-prefix-of-ssp (simulator sim evt)))
   :hints (("Goal" :induct (simulator sim evt))))
