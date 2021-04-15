@@ -108,10 +108,11 @@
     (seq-num-okp sender-state)))
 
 (definec simulator-step (sim :sim-state) :sim-state
+  :function-contract-strictp nil
   (if (simulator-state-check sim)
       (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq)) sim))
 	`(sim-state (sendstate ,sdata ,(1+ sseq))
-		    (recvstate ,(app rdata (list (nth sseq sdata))) ,rseq)))
+		    (recvstate ,(app rdata (list (nth (len rdata) sdata))) ,rseq)))
     sim))
 
 (check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0)))
@@ -172,24 +173,30 @@
 	   (prefixp (app x (list (nth (len x) y))) y)))
 
 (definec rs-prefix-of-ssp (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &) steps) sim))
+  (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &)) sim))
     (prefixp rs ss)))
 
-;; (in-theory (disable (:definition rs-prefix-of-ssp)))
-
 (definec seqnum-consistent (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate & sseq) ('recvstate rs rseq) steps) sim))
+  (let-match* ((('sim-state ('sendstate & sseq) ('recvstate rs rseq)) sim))
     (and (== rseq sseq)
 	 (== (len rs) rseq))))
 
+#| == The proof sketch ==
+
+We know receiver state is a prefix of sender state (via C3), and that
+the sender sequence number is equal to it's length (via C4). So we should
+be able to utilize the prefix-nth lemma to show that the prefix property holds.
+|#
+
 (defthm simulator-step-prefix-property
   (implies (and (sim-statep sim)
-		(simulator-state-check2 sim)
+		;; (simulator-state-check2 sim)
 		(rs-prefix-of-ssp sim)
 		(seqnum-consistent sim))
 	   (rs-prefix-of-ssp (simulator-step sim)))
   :hints (("Goal" :do-not-induct t
-	   :do-not generalize)))
+	   :do-not generalize)
+	  ("Subgoal 2'5'" :use (:instance prefix-nth (y sim8) (x sim9)))))
 
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
@@ -200,10 +207,3 @@
 		(seqnum-consistent sim))
 	   (rs-prefix-of-ssp (simulator sim evt)))
   :hints (("Goal" :induct (simulator sim evt))))
-
-;; (defthm data-never-out-of-order
-;;   (implies (and (datap d)
-;; 		(event-deckp n)
-;; 		(>= (len d) (len n)))
-;; 	   (prefixp (simulator* d n) d))
-;;   :hints (("Goal" :use simulator*-definition-rule)))
