@@ -98,18 +98,20 @@
 
 ;; ---- Functions ----
 
-(definec seq-num-okp (sender-state :sender-state) :bool
-  (let-match* ((('sendstate data seq-num) sender-state))
+(definec simulator-state-check (sim :sim-state) :bool
+  (let-match* ((('sim-state sender-state &) sim)
+	       (('sendstate data seq-num) sender-state))
     (> (len data) seq-num)))
 
-(set-ignore-ok t)
-(definec simulator-state-check (sim :sim-state) :bool
-  (let-match* ((('sim-state sender-state &) sim))
-    (seq-num-okp sender-state)))
+(definec sequence-number-sanep (sim :sim-state) :bool
+  (let-match* ((('sim-state ('sendstate & sseq) ('recvstate rs rseq)) sim))
+    (and (== (len rs) rseq)
+	 (== sseq rseq))))
 
 (definec simulator-step (sim :sim-state) :sim-state
   :function-contract-strictp nil
-  (if (simulator-state-check sim)
+  (if (and (simulator-state-check sim)
+	   (sequence-number-sanep sim))
       (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq)) sim))
 	`(sim-state (sendstate ,sdata ,(1+ sseq))
 		    (recvstate ,(app rdata (list (nth (len rdata) sdata))) ,rseq)))
@@ -126,6 +128,7 @@
   (let-match* ((('sim-state ('sendstate data seqnum) &) sim))
     (>= (len data) seqnum)))
 
+(set-ignore-ok :warn)
 (definec simulator (sim :sim-state steps :event-deck) :sim-state
   :function-contract-strictp nil
   :body-contracts-strictp nil
@@ -139,15 +142,15 @@
 (check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0)) '(nil nil nil))
 	'(4 5 6 1 2 3))
 
-(definec simulator* (data :data steps :event-deck) :data
-  :function-contract-strictp nil
-  :ic (>= (len data) (len steps))
-  (let-match* ((('sim-state & ('recvstate rs &))
-		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0)) steps)))
-    rs))
+;; (definec simulator* (data :data steps :event-deck) :data
+;;   :function-contract-strictp nil
+;;   :ic (>= (len data) (len steps))
+;;   (let-match* ((('sim-state & ('recvstate rs &))
+;; 		(simulator `(sim-state (sendstate ,data 0) (recvstate nil 0)) steps)))
+;;     rs))
 
-(check= (simulator* '(4 5 6) '(nil nil nil))
-	'(4 5 6))
+;; (check= (simulator* '(4 5 6) '(nil nil nil))
+;; 	'(4 5 6))
 
 ;; ---- Proofs ----
 
@@ -189,15 +192,20 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 |#
 
 (defthm simulator-step-prefix-property
-  (test? (implies (and (sim-statep sim)
-		 ;; (simulator-state-check2 sim)
-		 (rs-prefix-of-ssp sim)
-		 ;; (seqnum-consistent sim)
-		 )
-		  (rs-prefix-of-ssp (simulator-step sim))))
+  (implies (and (sim-statep sim)
+		;; (simulator-state-check2 sim)
+		(rs-prefix-of-ssp sim)
+		;; (seqnum-consistent sim)
+		)
+	   (rs-prefix-of-ssp (simulator-step sim)))
   :hints (("Goal" :do-not-induct t
 	   :do-not generalize)
-	  ("Subgoal 2'5'" :use (:instance prefix-nth (y sim8) (x sim9)))))
+	  ("Subgoal 3'6'" :use (:instance prefix-nth (y sim8) (x sim9)))))
+
+(defthm foobar
+  (implies (and (sim-statep sim)
+		(event-deckp evt))
+	   (sim-statep (simulator sim evt))))
 
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
@@ -205,8 +213,10 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 		(event-deckp evt)
 		(simulator-state-check2 sim)
 		(rs-prefix-of-ssp sim)
-		(seqnum-consistent sim))
+		(sim-statep (simulator sim evt)))
 	   (rs-prefix-of-ssp (simulator sim evt)))
   :hints (("Goal" :induct (simulator sim evt))
-	  ("Subgoal *1/2" :use (:instance simulator-definition-rule))
-	  ("Subgoal *1/2.87" :use (:instance simulator-step-prefix-property (sim (SIMULATOR SIM (CDR EVT)))))))
+	  ;; ("Subgoal *1/2" :use (:instance simulator-definition-rule))
+	  ;; ("Subgoal *1/2'" :use (:instance simulator-step-prefix-property (sim (SIMULATOR SIM (CDR EVT)))))
+	  ;; ("Subgoal *1/2.87" :use (:instance simulator-step-prefix-property (sim (SIMULATOR SIM (CDR EVT)))))
+	  ))
