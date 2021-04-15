@@ -160,8 +160,9 @@
 	    (tlp x)
 	    (tlp y)
 	    (prefixp x y)
-	    (< (len x) (len y)))
-	   (prefixp (app x (list (nth (len x) y))) y)))
+	    (< (len x) (len y))
+	    (== index (len x)))
+	   (prefixp (app x (list (nth index y))) y)))
 
 (definec rs-prefix-of-ssp (sim :sim-state) :bool
   (let-match* ((('sim-state ('sendstate ss &) ('recvstate rs &)) sim))
@@ -180,14 +181,16 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 	   (rs-prefix-of-ssp (simulator-step sim)))
   :hints (("Goal" :do-not-induct t
 	   :do-not generalize)
-	  ("Subgoal 3'6'" :use (:instance prefix-nth (y sim8) (x sim9)))))
+	  ("Subgoal 3'6'" :use (:instance prefix-nth
+					  (y sim8)
+					  (x sim9)
+					  (index (len sim9))))))
 
 (in-theory (disable simulator-step-definition-rule))
 (defthm simulator-prefix-property
   (implies (and (sim-statep sim)
 		(event-deckp evt)
 		(simulator-state-check2 sim)
-		(rs-prefix-of-ssp sim)
-		)
+		(rs-prefix-of-ssp sim))
 	   (rs-prefix-of-ssp (simulator sim evt)))
   :hints (("Goal" :induct (simulator sim evt))))
