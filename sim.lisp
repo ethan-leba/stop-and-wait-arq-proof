@@ -93,36 +93,35 @@
 	       (('sendstate data seq-num) sender-state))
     (> (len data) seq-num)))
 
-(definec sequence-number-sanep (sim :sim-state) :bool
-  (let-match* ((('sim-state ('sendstate & sseq) ('recvstate rs rseq)) sim))
-    (and (== (len rs) rseq)
-	 (== sseq rseq))))
-
 (definec simulator-step (sim :sim-state event :event) :sim-state
-  (if (and (simulator-state-check sim)
-	   (sequence-number-sanep sim)
-	   (== event 'ok))
-      (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq)) sim))
+  (if (not (simulator-state-check sim)) sim
+    (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata &)) sim))
+      (cond
+       ((and (== event 'ok) (== sseq (len rdata)))
 	`(sim-state (sendstate ,sdata ,(1+ sseq))
-		    (recvstate ,(app rdata (list (nth sseq sdata))) ,rseq)))
-    sim))
+		    (recvstate ,(app rdata (list (nth sseq sdata))) 0)))
+       (T sim)))))
 
-(check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0)))
-	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0) (nil nil)))
+(check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0)) 'ok)
+	'(sim-state (sendstate (1 2) 1) (recvstate (1) 0)))
 
-(check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate (4 5 6) 0)))
-	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0) ()))
+(check= (simulator-step '(sim-state (sendstate (1 2) 1) (recvstate (1) 0)) 'ok)
+	'(sim-state (sendstate (1 2) 2) (recvstate (1 2) 0)))
+
+;; (check= (simulator-step '(sim-state (sendstate (1) 0) (recvstate () 0)) 'ok)
+;; 	'(sim-state (sendstate (1) 1) (recvstate (4 5 6 1) 0) ()))
 
 
-(definec simulator (sim :sim-state steps :event-deck) :sim-state
-  :function-contract-strictp nil
-  :body-contracts-strictp nil
-  :skip-tests t
-  (cond
-   ((lendp steps) sim)
-   (T (simulator-step (simulator sim (cdr steps)) (car steps)))))
+(skip-proofs
+ (definec simulator (sim :sim-state steps :event-deck) :sim-state
+   :function-contract-strictp nil
+   :body-contracts-strictp nil
+   :skip-tests t
+   (cond
+    ((lendp steps) sim)
+    (T (simulator-step (simulator sim (cdr steps)) (car steps))))))
 
-(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate (4 5 6) 0)) '(nil nil nil))
+(check= (simulator '(sim-state (sendstate (1 2 3) 0) (recvstate () 0)) '(ok ok ok))
 	'(4 5 6 1 2 3))
 
 ;; (definec simulator* (data :data steps :event-deck) :data
@@ -178,7 +177,7 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 	   (rs-prefix-of-ssp (simulator-step sim evt)))
   :hints (("Goal" :do-not-induct t
 	   :do-not generalize)
-	  ("Subgoal 3'6'" :use (:instance prefix-nth
+	  ("Subgoal 2'5'" :use (:instance prefix-nth
 					  (y sim8)
 					  (x sim9)
 					  (index (len sim9))))))
