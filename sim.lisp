@@ -101,7 +101,7 @@
 	   (sequence-number-sanep sim))
       (let-match* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata rseq)) sim))
 	`(sim-state (sendstate ,sdata ,(1+ sseq))
-		    (recvstate ,(app rdata (list (nth (len rdata) sdata))) ,rseq)))
+		    (recvstate ,(app rdata (list (nth sseq sdata))) ,rseq)))
     sim))
 
 (check= (simulator-step '(sim-state (sendstate (1 2) 0) (recvstate nil 0)))
