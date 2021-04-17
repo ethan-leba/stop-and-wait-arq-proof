@@ -76,7 +76,11 @@
 	(case-match greatbadness
 	  (,pat (match-let* ,rst ,body)))))))
 
-;; ---- Definitions ----
+
+;;                        ---------------------
+;;                        |    Definitions    |
+;;                        ---------------------
+
 
 ;; Represents the state of the sender, holding the data to send and the current sequence number.
 (defdata sender-state `(sendstate ,tl ,nat))
@@ -96,7 +100,9 @@
 ;; Represents the state of the simulation, holding the state of sender and receiver.
 (defdata sim-state `(sim-state ,sender-state ,receiver-state))
 
-;; ---- Functions ----
+;;                        ---------------------
+;;                        |     Functions     |
+;;                        ---------------------
 
 (definec simulator-completep (sim :sim-state) :bool
   "If the sender's sequence number larger than the data, there's no more data to send."
@@ -173,7 +179,6 @@
   "Repeatedly applies simulator-step with the events specified."
   :function-contract-strictp nil
   :body-contracts-strictp nil
-  :skip-tests t
   (cond
    ((lendp steps) sim)
    (T (simulator-step (simulator sim (cdr steps)) (car steps)))))
@@ -197,15 +202,15 @@
 		    (recvstate (1 2) 0)))
 
 ;; `simulator` times out trying to prove the function contract during
-;; definition, but this lemma passes fine.
+;; definition, but this lemma is able to pass and is needed for proofs.
 (defthm simulator-function-contract
   (implies (and (sim-statep sim)
 		(event-deckp evt))
 	   (sim-statep (simulator sim evt))))
 
-(verify-guards simulator)
-
-;; ---- Proofs ----
+;;                        ---------------------
+;;                        |       Proofs      |
+;;                        ---------------------
 
 (definec prefixp (x :tl y :tl) :bool
   "Checks if X is a prefix of Y."
