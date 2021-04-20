@@ -82,22 +82,26 @@
 ;;                        ---------------------
 
 
-;; Represents the state of the sender, holding the data to send and the current sequence number.
+;; Represents the state of the sender, holding the data to send and
+;; the current sequence number.
 (defdata sender-state `(sendstate ,tl ,nat))
 
-;; Represents the state of the receiver, holding the data received so far.
-(defdata receiver-state `(recvstate ,tl ,nat))
+;; Represents the state of the receiver, holding the data received so
+;; far.
+(defdata receiver-state `(recvstate ,tl))
 
 ;; An event is one of:
 ;; - OK 	  both the packet and ack are transmitted.
-;; - DROP-ACK     the packet is trasmitted but the ack is dropped.
+;; - DROP-ACK     the packet is transmitted but the ack is dropped.
 ;; - DROP-PACKET  the packet is dropped, no packet to ack.
 (defdata event (enum '(ok drop-ack drop-packet)))
 
-;; Represents a sequence of events that occur in the simulated network environment.
+;; Represents a sequence of events that occur in the simulated network
+;; environment.
 (defdata event-deck (listof event))
 
-;; Represents the state of the simulation, holding the state of sender and receiver.
+;; Represents the state of the simulation, holding the state of sender
+;; and receiver.
 (defdata sim-state `(sim-state ,sender-state ,receiver-state))
 
 ;;                        ---------------------
@@ -105,7 +109,8 @@
 ;;                        ---------------------
 
 (definec simulator-completep (sim :sim-state) :bool
-  "If the sender's sequence number larger than the data, there's no more data to send."
+  "If the sender's sequence number larger than the data, there's no
+more data to send."
   (match-let* ((('sim-state sender-state &) sim)
 	       (('sendstate data seq-num) sender-state))
     (not (> (len data) seq-num))))
@@ -113,96 +118,99 @@
 (definec simulator-step (sim :sim-state event :event) :sim-state
   "Performs one round of the simulation with the given event."
   (if (simulator-completep sim) sim
-    (match-let* ((('sim-state ('sendstate sdata sseq) ('recvstate rdata &)) sim))
+    (match-let* ((('sim-state ('sendstate sdata sseq)
+			      ('recvstate rdata)) sim))
       (cond
        ;; Packet dropped
        ((== event 'drop-packet) sim)
        ;; OK packet, sender up-to-date
        ((and (== event 'ok) (== sseq (len rdata)))
 	`(sim-state (sendstate ,sdata ,(1+ sseq))
-		    (recvstate ,(app rdata (list (nth sseq sdata))) 0)))
+		    (recvstate ,(app rdata (list (nth sseq sdata))))))
        ;; OK packet, sender is behind 
        ((and (== event 'ok) (!= sseq (len rdata)))
 	`(sim-state (sendstate ,sdata ,(len rdata))
-		    (recvstate ,rdata 0)))
+		    (recvstate ,rdata)))
        ;; Ack dropped, sender up-to-date
        ((and (== event 'drop-ack) (== sseq (len rdata)))
 	`(sim-state (sendstate ,sdata ,sseq)
-		    (recvstate ,(app rdata (list (nth sseq sdata))) 0)))
+		    (recvstate ,(app rdata (list (nth sseq sdata))))))
        ;; Ack dropped, sender behind
        ((and (== event 'drop-ack) (!= sseq (len rdata))) sim)))))
 
 ;; Nothing to send => nothing happens.
 (check= (simulator-step
 	 '(sim-state (sendstate nil 0)
-		     (recvstate nil 0)) 'ok)
+		     (recvstate nil)) 'ok)
 	'(sim-state (sendstate nil 0)
-		    (recvstate nil 0)))
+		    (recvstate nil)))
 
 ;; OK packet, sender up-to-date => receiver accepts packet, sender increments seq num.
 (check= (simulator-step
 	 '(sim-state (sendstate (1 2) 0)
-		     (recvstate nil 0)) 'ok)
+		     (recvstate nil)) 'ok)
 	'(sim-state (sendstate (1 2) 1)
-		    (recvstate (1) 0)))
+		    (recvstate (1))))
 
 ;; OK packet, sender is behind => receiver rejects packet, sender matches receiver's seq num. 
 (check= (simulator-step
 	 '(sim-state (sendstate (1 2) 0)
-		     (recvstate (1) 0)) 'ok)
+		     (recvstate (1))) 'ok)
 	'(sim-state (sendstate (1 2) 1)
-		    (recvstate (1) 0)))
+		    (recvstate (1))))
 
 ;; Ack dropped, sender up-to-date => receiver accepts packet, sender's seq num unchanged.
 (check= (simulator-step
 	 '(sim-state (sendstate (1 2) 0)
-		     (recvstate () 0)) 'drop-ack)
+		     (recvstate ())) 'drop-ack)
 	'(sim-state (sendstate (1 2) 0)
-		    (recvstate (1) 0)))
+		    (recvstate (1))))
 
 ;; Ack dropped, sender behind => nothing happens.
 (check= (simulator-step
 	 '(sim-state (sendstate (1 2) 0)
-		     (recvstate (1) 0)) 'drop-ack)
+		     (recvstate (1))) 'drop-ack)
 	'(sim-state (sendstate (1 2) 0)
-		    (recvstate (1) 0)))
+		    (recvstate (1))))
 
 ;; Packet dropped => nothing happens.
 (check= (simulator-step
 	 '(sim-state (sendstate (1 2) 1)
-		     (recvstate (1) 0)) 'drop-packet)
+		     (recvstate (1))) 'drop-packet)
 	'(sim-state (sendstate (1 2) 1)
-		    (recvstate (1) 0)))
+		    (recvstate (1))))
 
 
 (definec simulator (sim :sim-state steps :event-deck) :sim-state
   "Repeatedly applies simulator-step with the events specified."
   :function-contract-strictp nil
   :body-contracts-strictp nil
+  :skip-tests t
   (cond
    ((lendp steps) sim)
    (T (simulator-step (simulator sim (cdr steps)) (car steps)))))
 
 (check= (simulator '(sim-state (sendstate () 0)
-			       (recvstate () 0))
+			       (recvstate ()))
 		   '())
 	'(sim-state (sendstate () 0)
-		    (recvstate () 0)))
+		    (recvstate ())))
 
 (check= (simulator '(sim-state (sendstate (1 2 3) 0)
-			       (recvstate () 0))
+			       (recvstate ()))
 		   '(ok ok ok))
 	'(sim-state (sendstate (1 2 3) 3)
-		    (recvstate (1 2 3) 0)))
+		    (recvstate (1 2 3))))
 
 (check= (simulator '(sim-state (sendstate (1 2 3) 0)
-			       (recvstate () 0))
+			       (recvstate ()))
 		   '(ok drop-packet drop-ack ok))
 	'(sim-state (sendstate (1 2 3) 2)
-		    (recvstate (1 2) 0)))
+		    (recvstate (1 2))))
 
 ;; `simulator` times out trying to prove the function contract during
-;; definition, but this lemma is able to pass and is needed for proofs.
+;; definition, but this lemma is able to pass and is needed for
+;; proofs.
 (defthm simulator-function-contract
   (implies (and (sim-statep sim)
 		(event-deckp evt))
@@ -222,7 +230,8 @@
 
 (definec rs-prefix-of-ssp (sim :sim-state) :bool
   "Check if the receiver's data is a prefix of the sender's."
-  (match-let* ((('sim-state ('sendstate ss &) ('recvstate rs &)) sim))
+  (match-let* ((('sim-state ('sendstate ss &)
+			    ('recvstate rs)) sim))
     (prefixp rs ss)))
 
 (check= (prefixp '() '()) T)
@@ -247,8 +256,9 @@
 #| == The proof sketch ==
 
 We know receiver state is a prefix of sender state (via C3), and that
-the sender sequence number is equal to it's length (via C4). So we should
-be able to utilize the prefix-nth lemma to show that the prefix property holds.
+the sender sequence number is equal to it's length (via C4). So we
+should be able to utilize the prefix-nth lemma to show that the prefix
+property holds.
 |#
 
 ;; This lemma shows that given a simulator state where the
@@ -269,10 +279,6 @@ be able to utilize the prefix-nth lemma to show that the prefix property holds.
 					  (x sim9)
 					  (index (len sim9))))))
 
-
-
-;; Disabling the definition rule so we can use the lemma proved above
-(in-theory (disable simulator-step-definition-rule))
 
 ;; This lemma shows that given a starting simulator state where the
 ;; receiver-sender prefix property holds, and any set of events to
