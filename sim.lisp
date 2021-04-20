@@ -65,7 +65,7 @@
 ;$ACL2s-SMode$;ACL2s
 
 (defmacro match-let* (binds body)
-  "Parallels racket's match-let* macro, using case-match."
+  "Implements racket's match-let* macro, using case-match."
   (case-match binds
     ('() body)
     (((pat val) . rst)
@@ -183,8 +183,7 @@ more data to send."
 
 (definec simulator (sim :sim-state steps :event-deck) :sim-state
   "Repeatedly applies simulator-step with the events specified."
-  :function-contract-strictp nil
-  :body-contracts-strictp nil
+  :timeout 500
   :skip-tests t
   (cond
    ((lendp steps) sim)
@@ -207,14 +206,6 @@ more data to send."
 		   '(ok drop-packet drop-ack ok))
 	'(sim-state (sendstate (1 2 3) 2)
 		    (recvstate (1 2))))
-
-;; `simulator` times out trying to prove the function contract during
-;; definition, but this lemma is able to pass and is needed for
-;; proofs.
-(defthm simulator-function-contract
-  (implies (and (sim-statep sim)
-		(event-deckp evt))
-	   (sim-statep (simulator sim evt))))
 
 ;;                        ---------------------
 ;;                        |       Proofs      |
@@ -270,25 +261,40 @@ property holds.
 		(eventp evt))
 	   (rs-prefix-of-ssp (simulator-step sim evt)))
   ;; Applying the prefix-nth lemma to the OK and DROP-ACK subgoals
-  :hints (("Subgoal 5'5'" :use (:instance prefix-nth
-					  (y sim8)
-					  (x sim9)
-					  (index (len sim9))))
-	  ("Subgoal 2'5'" :use (:instance prefix-nth
-					  (y sim8)
-					  (x sim9)
-					  (index (len sim9))))))
+  :hints (("Subgoal 5'5'" :use
+	   (:instance prefix-nth
+		      (y sim8)
+		      (x sim9)
+		      (index (len sim9))))
+	  ("Subgoal 2'5'" :use
+	   (:instance prefix-nth
+		      (y sim8)
+		      (x sim9)
+		      (index (len sim9))))))
 
 
 ;; This lemma shows that given a starting simulator state where the
 ;; receiver-sender prefix property holds, and any set of events to
 ;; occur during the simulation, the prefix property will hold after
 ;; applying the simulation to the starting conditions.
-(defthm simulator-prefix-property
+(defthm simulator-maintains-prefix-property
   (implies (and (sim-statep sim)
 		(event-deckp evt)
 		(rs-prefix-of-ssp sim))
 	   (rs-prefix-of-ssp (simulator sim evt)))
-  :hints (("Goal" :induct (simulator sim evt))))
+  :hints (("Goal"
+	   :induct (simulator sim evt)
+	   :in-theory (disable simulator-step-definition-rule))))
+
+;; A corollary showing that given an reasonable initial simulator state,
+;; where the sender's sequence number is zero, and the receiver has not
+;; collected any information, the receiver-sender prefix property holds
+;; regardless of the data being sent or conditions.
+(defthm simulator-prefix-property
+  (implies (and (tlp d)
+		(event-deckp evts))
+	   (rs-prefix-of-ssp
+	    (simulator `(sim-state (sendstate ,d 0)
+				   (recvstate ())) evts))))
 
 ;; QED.
