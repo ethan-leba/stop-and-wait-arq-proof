@@ -1,4 +1,4 @@
-#+TITLE: Proving correctness of the stop-and-wait ARQ
+#+TITLE: Proving correctness of the stop-and-wait protocol
 
 * Introduction
 
@@ -6,17 +6,16 @@ As networks facilitate communication across the globe in any range of
 conditions, the connections must be robust to various disruptions:
 packets may be lost, intercepted, delayed, etc. One protocol for
 dealing with lost packets is the stop-and-wait ARQ (Automatic Repeat
-Request) protocol. Stop-and-wait is used in bluetooth communication,
+Request) protocol. Stop-and-wait is used in Bluetooth communication,
 and can be seen as a special case of TCP with a sliding window of
 size 1.
 
-In this paper, we implement a model network in ACL2(s), and
-demonstrate the correctness of our particular implementation of the
-stop-and-wait ARQ. In particular, we mechanically prove the following
-theorem:
+In this paper, we describe an implementation a model network using
+stop-and-wait in ACL2(s), and demonstrate a mechnical proof the
+following theorem:
 
-**The data contained by the receiver will always be a prefix of the
-data being sent by the sender, regardless of network conditions.**
+*The data contained by the receiver will always be a prefix of the
+data being sent by the sender, regardless of network conditions.*
 
 ** Approach
    
@@ -31,19 +30,13 @@ elsewhere.
 For the simplicity of the proof, we omit the following details.
 
 - Two way communication. :: We use a one way communication model,
-  where the receiver cannot return any data.
+  where the receiver cannot respond with any data.
 
-- Handshakes and teardowns. :: No handshakes and teardowns take place,
-  as the communication is one-to-one.
+- Handshakes and teardowns. :: No handshakes and teardowns take place.
 
 - Packet delay/timeouts. :: We assume that a packet will either be
   sent, or dropped, and that the sender/receiver can determine with
-  certainty that a packed is dropped and not delayed.
-
-- Travel time. :: In the simulation, we segment the delivery of an ack
-  or packet into rounds, where a packet is either received or
-  lost. This can be seen as the travel time of a packet being exactly
-  fixed. (?)
+  certainty that a packet is dropped and not delayed.
 
 - End of file. :: The simulation completes when the sender's data has
   been fully transmitted, so no EOF handling is needed.
@@ -58,25 +51,29 @@ respectively.
 
 *** Sender behavior
 
-The sender performs the following loop.
+The sender will send out the (sequence number)'th chunk of data in a
+packet, along with the sequence number at the beginning of each
+round. The sender will wait for an ACK and respond in one of the
+following ways.
 
-1. Send out the (sequence number)'th chunk of data in a packet, along
-   with the sequence number.
-2. If no ACK is received, send the packet again.
-3. If an ACK is received with the expected number, increment the
-    sequence number and send the next packet.
-4. If an ACK is received with a number less than the expected, send
-    the packet again.
+1. If no ACK is received, do nothing.
+2. If an ACK is received with the expected number, increment the
+    sequence number.
+3. If an ACK is received with a greater number, set the sequence
+   number to the one received.
 
 *** Receiver behavior
 
-The receiver performs the following loop.
 
-1. Wait for a packet.
-2. If a packet is received with a sequence number one greater than
-   the current sequence number, then store the packet data and
-   increment the sequence number.
-3. Send an ACK containing the current sequence number. 
+The receiver will wait for a packet and respond one of the following
+ways.
+
+1. If a packet is received with a sequence number one greater than
+   the current sequence number, then store the packet data.
+2. Otherwise, do nothing.
+
+In either case, the receiver will respond with an ACK containing the
+current sequence number.
 
 * Implementation
   
@@ -143,15 +140,14 @@ one round of the simulation.
        ((and (== event 'drop-ack) (!= sseq (len rdata))) sim)))))
 #+end_src
 
-The behavior of the protocol described in 1.3 is coalesced into one
-algorithm, which contains each of the possible outcomes of a
-round. 
-We have also defined
-a predicate =simulator-completep=, which checks if the sender has
-completed sending it's data.
+The behavior of the protocol described in Section 1.3 is coalesced
+into one algorithm, which contains each of the possible outcomes of a
+round. For a precise description of the mapping, see Appendix A.  We
+have also defined a predicate =simulator-completep=, which checks if
+the sender has sent all of it's data.
 
 Finally, we see =simulator=, which performs the entire simulation with
-the given events.
+the given simulation state and network conditions.
 
 #+begin_src lisp
 (definec simulator (sim :sim-state steps :event-deck) :sim-state
@@ -164,7 +160,8 @@ the given events.
 ** Proof
 
 Firstly, in order to state the theorem programmatically we define two
-functions to create a predicate for the receiver-sender property.
+functions to create a predicate for the receiver-sender prefix
+property, as defined in =rs-prefix-of-ssp=.
 
 #+begin_src lisp
 (definec prefixp (x :tl y :tl) :bool
@@ -187,17 +184,34 @@ following =defthm=:
 
 #+begin_src lisp
 (defthm simulator-prefix-property
-  (implies (and (sim-statep sim)
-                (event-deckp evt)
-                (rs-prefix-of-ssp sim))
-           (rs-prefix-of-ssp (simulator sim evt)))
-  :hints (("Goal" :induct (simulator sim evt))))
+  (implies (and (tlp d)
+		(event-deckp evts))
+	   (rs-prefix-of-ssp
+	    (simulator `(sim-state (sendstate ,d 0)
+				   (recvstate ())) evts))))
 #+end_src
 
-In english, this lemma shows that given a starting simulator state
-where the receiver-sender prefix property holds, and any set of events
-to occur during the simulation, the prefix property holds after
-applying the simulation to the starting state.
+The lemma states that given an reasonable initial simulator state
+(where the sender's sequence number is zero, and the receiver has not
+collected any information), the receiver-sender prefix property holds
+regardless of the data being sent or network conditions. This is a
+specific case of a general property that we will prove:
+
+#+begin_src lisp
+(defthm simulator-maintains-prefix-property
+  (implies (and (sim-statep sim)
+		(event-deckp evt)
+		(rs-prefix-of-ssp sim))
+	   (rs-prefix-of-ssp (simulator sim evt)))
+  :hints (("Goal"
+	   :induct (simulator sim evt)
+	   :in-theory (disable simulator-step-definition-rule))))
+#+end_src
+
+This lemma states that given any starting simulation state where the
+receiver-sender prefix property holds, and any set of events to occur
+during the simulation, the prefix property holds after applying the
+simulation to the provided state.
 
 We can prove this inductively, by showing that:
 
@@ -219,9 +233,8 @@ step maintains the prefix property.
    (rs-prefix-of-ssp (simulator-step sim evt))))
 #+end_src
 
-This is the lemma we described above in ACL2. However, ACL2 is unable
-to prove this lemma, so we introduce a more general lemma which can be
-applied in the proof of the above.
+With no helper lemmas, ACL2 is unable to prove the above. We introduce
+a more general lemma which can be applied in the proof.
 
 #+begin_src lisp
 (defthm prefix-nth
@@ -234,10 +247,10 @@ applied in the proof of the above.
             (prefixp (app x (list (nth index y))) y)))
 #+end_src
 
-This lemma shows that given a list X that is smaller than and a prefix
-of Y, adding the next element of Y maintains the prefix
-property. Notably, this parallels the behavior of =simulator-step=
-when a packet is received with an expected sequence number.
+This lemma shows that given a list X that is smaller than, and a
+prefix of Y, adding the next element of Y maintains the prefix
+property. This parallels the behavior of =simulator-step= when a
+packet is received with an expected sequence number.
 
 #+begin_src lisp
 (defthm simulator-step-prefix-property
@@ -256,14 +269,15 @@ when a packet is received with an expected sequence number.
                                           (index (len sim9))))))
 #+end_src
 
-We can now return to the simulator step lemma. ACL2 performs a proof
-by cases, and now we can apply an instance of this lemma to Subgoals 5
-and 2, that are the cases when the receiver accepts and appends a
-packet. These are the only two cases where the receiver's data is
-extended, so the other cases hold trivially.
+We can now return to Lemma =simulator-step-prefix-property=. ACL2
+performs a proof by cases, and we can now apply an instance of this
+lemma to Subgoals 5 and 2, the cases when the receiver accepts and
+appends a packet. These are the only two cases where the receiver's
+data is extended, so the other cases hold trivially.
 
-Now with the =simulator-step-prefix-property= lemma proven, ACL2 is
-able to prove =simulator-prefix-property=.
+Now with Lemma =simulator-step-prefix-property=, ACL2 is able to prove
+=simulator-maintains-prefix-property=, and the
+=simulator-prefix-property= corollary follows from this.
 
 * Conclusion
   
@@ -286,10 +300,10 @@ the sender would discard any data that was confirmed to be received,
 by replacing the data with it's =cdr=, and sending the =car= instead
 of using =nth=. This at first seemed easier for ACL2 to reason about,
 but proving the receiver-sender prefix property while the contents of
-the sender's data was changing make the proof far more
-challenging. In addition, the first model had a dedicated function for
-the receiver and sender, we opted to coalesce the behavior for the
-final model into =simulator-step= to simplify the proof by cases.
+the sender's data was changing made the proof far more challenging. In
+addition, the first model had a dedicated function for the receiver
+and sender, but we opted to coalesce the behavior for the final model
+into =simulator-step= in order to simplify the proof by cases.
 
 Another challenge was representing the datatypes for the model. The
 record type for =defdata= seemed to be a great fit, but using records
@@ -301,11 +315,31 @@ for using a tagged list structure in the final model.
 We have now shown a mechanized proof in ACL2 proving the correctness
 of the prefix property of the stop-and-wait protocol, a fundamental
 property of network communication that countless applications rely
-on. Moving forward, this model could be potentially be used as a
-foundation for reasoning about more complex properties and protocols
-in ACL2.
+on. Looking forward, this model has potential to be used as a
+foundation for reasoning about more complex network properties and
+protocols in ACL2.
 
-* Appendix
-
+* Appendix A
 The =simulator-step= function describes 5 possible outcomes for each
-set of events and simulation state.  
+set of events and simulation state. Here we state precisely how the
+ACL2 function maps to the description in Section 1.3.
+
+- Packet dropped :: The receiver does not receive a packet, so it does
+  not respond, and the sender performs step 1.
+
+- OK packet, sender up-to-date :: The receiver performs step 1, and
+  the sender performs step 2.
+
+- OK packet, sender is behind :: The receiver performs step 2, and the
+  sender performs step 3.
+
+- Ack dropped, sender up-to-date :: The receiver performs step 1, and
+  the sender performs step 1.
+
+- Ack dropped, sender behind :: The receiver performs step 2, and the
+  sender performs step 1.
+  
+* Source Code
+
+The source code for the project can be viewed at
+https://github.com/ethan-leba/stop-and-wait-arq-proof.

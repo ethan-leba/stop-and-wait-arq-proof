@@ -1,0 +1,10 @@
+* Installation
+
+1. Download ACL2s from http://acl2s.ccs.neu.edu/acl2s/doc/ and follow
+   the setup procedure described.
+2. Import the `sim.lisp` file from the repository.
+3. Advance the to-do line to the end.
+4. Success!
+
+/The accompanying paper can be found [[file:writeup.org][here]]/
+
